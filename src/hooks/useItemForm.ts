@@ -13,7 +13,7 @@ interface ItemFormData {
     condition: ComponentCondition;
 }
 
-export const useItemForm = (initialItem?: Item | null) => {
+export const useItemForm = () => {
     const defaultState: ItemFormData = {
         name: '',
         sku: '',
