@@ -115,6 +115,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
         setItems(updatedItems);
         onUpdate({ ...container, items: updatedItems });
         resetForm();
+        setIsFormOpen(false);
     };
 
     const handleDeleteItem = (itemId: string) => {
@@ -239,7 +240,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
                             >
                                 <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
                                     <button
-                                        onClick={resetForm}
+                                        onClick={() => { resetForm(); setIsFormOpen(false); }}
                                         className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
                                     >
                                         <X size={20} />
@@ -420,7 +421,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
 
                                             <div className="flex gap-3 flex-1 justify-end items-center">
                                                 <button
-                                                    onClick={resetForm}
+                                                    onClick={() => { resetForm(); setIsFormOpen(false); }}
                                                     className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-50 rounded-xl transition-colors"
                                                 >
                                                     {t('btn_cancel')}
