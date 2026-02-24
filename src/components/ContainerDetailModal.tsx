@@ -43,7 +43,9 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
     const [items, setItems] = useState<Item[]>(container.items || []);
     const [isFormOpen, setIsFormOpen] = useState(false);
 
-    // Initial Deep Link Logic
+    // Form State managed by custom hook
+    const { formData, isEditing, editingId, updateField, resetForm, loadItem, generateSku, parameterActions } = useItemForm();
+
     // Initial Deep Link Logic
     useEffect(() => {
         if (initialItemId) {
@@ -53,16 +55,12 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
                 setIsFormOpen(true);
             }
         }
-    }, [initialItemId, items]); // Added dependencies
+    }, [initialItemId, items, loadItem]);
 
     // Filter active requests for items in this container
     const isItemUnderMaintenance = (itemId: string) => {
         return requests.some((r: ServiceRequest) => r.componentId === itemId && r.status !== 'completed' && r.status !== 'denied');
     };
-
-    // Form State
-    // Form State managed by custom hook
-    const { formData, isEditing, editingId, updateField, resetForm, loadItem, generateSku, parameterActions } = useItemForm();
 
     const handleOpenAdd = () => {
         resetForm();
@@ -503,7 +501,7 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, on
             )}
 
             <div className="w-14 h-14 mb-4 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors">
-                <Icon size={28} />
+                {Icon({ size: 28 })}
             </div>
 
             <h4 className="font-bold text-gray-900 text-base mb-1 text-center leading-tight line-clamp-2">{item.name}</h4>

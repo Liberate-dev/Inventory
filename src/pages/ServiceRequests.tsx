@@ -30,7 +30,7 @@ const ServiceRequests = () => {
         if (!room) return;
 
         // Find container/station
-        let container = room.containers?.find(c => c.id === req.stationId);
+        const container = room.containers?.find(c => c.id === req.stationId);
 
         if (container) {
             setSelectedContainer(container);

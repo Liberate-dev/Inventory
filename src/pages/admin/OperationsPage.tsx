@@ -85,7 +85,7 @@ export default function OperationsPage() {
         // Better strategy: Calculate new state for ALL affected rooms and update once or carefully.
         // Given existing context API, let's try to batch the logic by cloning the rooms array first.
 
-        let currentRoomsState = [...rooms];
+        const currentRoomsState = [...rooms];
 
         // We need a helper to find room/container index in the LOCAL currentRoomsState
         const updateLocalState = (updatedRoom: Room) => {
@@ -194,7 +194,7 @@ export default function OperationsPage() {
     };
 
     const executeUsage = (verifierInfo: string) => {
-        let currentRoomsState = [...rooms];
+        const currentRoomsState = [...rooms];
         const updateLocalState = (updatedRoom: Room) => {
             const idx = currentRoomsState.findIndex(r => r.id === updatedRoom.id);
             if (idx !== -1) currentRoomsState[idx] = updatedRoom;
@@ -740,13 +740,13 @@ function PendingVerifications() {
         try {
             const details = JSON.parse(entry.log.details);
             return entry.log.action === 'TRANSFER' && details.verificationStatus === 'pending';
-        } catch (e) { return false; }
+        } catch { return false; }
     });
 
     const handleConfirm = (condition: ComponentCondition) => {
         if (!verifyingLog) return;
 
-        let targetLogEntry = verifyingLog;
+        const targetLogEntry = verifyingLog;
 
         let found = false;
         // Need to loop rooms to find the item that has THIS log id
@@ -869,7 +869,7 @@ function RecentOpsList() {
                 {filteredLogs.length > 0 ? (
                     filteredLogs.map((entry, idx) => {
                         let details = {};
-                        try { details = JSON.parse(entry.log.details); } catch (e) { }
+                        try { details = JSON.parse(entry.log.details); } catch { /* Ignore parse error */ }
 
                         return (
                             <div

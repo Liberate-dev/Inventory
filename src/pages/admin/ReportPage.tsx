@@ -13,7 +13,6 @@ const ReportPage = () => {
     const { roomLogs, stats } = useMemo(() => {
         const logs: any[] = [];
         let stockInCount = 0;
-        let issueCount = 0;
 
         rooms.forEach((room) => {
             room.containers.forEach((container) => {
@@ -33,7 +32,6 @@ const ReportPage = () => {
                                 });
 
                                 if (log.action.toLowerCase().includes('add') || log.action.toLowerCase().includes('new')) stockInCount++;
-                                if (status === 'bad') issueCount++; // Approx logic, ideally check log type
                             }
                         });
                     }
