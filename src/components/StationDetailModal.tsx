@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Monitor, Keyboard, Mouse, Cpu, ChevronRight, Activity, Zap, Clock, Plus, Trash2, Save, Maximize, AlertTriangle, FileText, ChevronLeft } from 'lucide-react';
+import { X, Monitor, Keyboard, Mouse, Cpu, ChevronRight, Activity, Clock, Plus, Trash2, Save, Maximize, AlertTriangle, ChevronLeft } from 'lucide-react';
 import type { Container, ComponentStatus, ComponentCondition, ItemLog, Item } from '../types';
 import { useServiceRequests } from '../context/ServiceRequestContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -11,6 +11,7 @@ import StationVisualizer from './StationVisualizer';
 
 interface StationDetailModalProps {
     station: Container;
+    roomId?: string;
     initialSelectedComponent?: string; // Optional deep link
     onClose: () => void;
     onUpdate: (updatedContainer: Container) => void;
@@ -19,20 +20,59 @@ interface StationDetailModalProps {
 export type ComponentType = 'monitor' | 'keyboard' | 'mouse' | 'pc' | 'desk';
 
 // Helper to map generic item types to specific component slots
+const parseSpecs = (rawSpecs: unknown, fallback: string[]) => {
+    if (typeof rawSpecs === 'string') {
+        return rawSpecs.split(',').map((entry) => entry.trim()).filter(Boolean);
+    }
+    if (Array.isArray(rawSpecs)) {
+        return rawSpecs.map((entry) => String(entry)).filter(Boolean);
+    }
+    return fallback;
+};
+
+const normalizeType = (value: unknown) => (typeof value === 'string' ? value.toLowerCase() : '');
+
+const createComponentLog = (action: string, details: string): ItemLog => ({
+    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    date: new Date().toISOString(),
+    action,
+    details
+});
+
+const ensureComponentLogs = (logs: unknown): ItemLog[] => {
+    if (Array.isArray(logs) && logs.length > 0) {
+        const validLogs = logs.filter((log): log is ItemLog => {
+            if (typeof log !== 'object' || log === null) return false;
+            const entry = log as Partial<ItemLog>;
+            return typeof entry.action === 'string' && typeof entry.date === 'string';
+        });
+        if (validLogs.length > 0) {
+            return validLogs;
+        }
+    }
+
+    return [createComponentLog('INITIALIZED', 'Log awal komponen dibuat otomatis.')];
+};
+
 const mapItemsToComponents = (items: any[]) => {
     const components: Record<string, any> = {};
     items.forEach(item => {
-        const type = item.type.toLowerCase();
-        if (['monitor', 'screen', 'display'].includes(type)) components.monitor = { ...item, specs: item.specs ? item.specs.split(',') : ['Standard Display'] };
-        else if (['keyboard', 'keypad'].includes(type)) components.keyboard = { ...item, specs: item.specs ? item.specs.split(',') : ['Standard Layout'] };
-        else if (['mouse', 'trackpad'].includes(type)) components.mouse = { ...item, specs: item.specs ? item.specs.split(',') : ['Standard Optical'] };
-        else if (['pc', 'computer', 'desktop', 'tower', 'pc unit'].includes(type)) components.pc = { ...item, specs: item.specs ? item.specs.split(',') : ['Standard config'] };
-        else if (['desk', 'table', 'physical desk', 'workstation'].includes(type)) components.desk = { ...item, specs: item.specs ? item.specs.split(',') : ['Standard Desk'] };
+        const type = normalizeType(item?.type);
+        if (!type) return;
+        const baseComponent = {
+            ...item,
+            logs: ensureComponentLogs(item?.logs)
+        };
+        if (['monitor', 'screen', 'display'].includes(type)) components.monitor = { ...baseComponent, specs: parseSpecs(item?.specs, ['Standard Display']) };
+        else if (['keyboard', 'keypad'].includes(type)) components.keyboard = { ...baseComponent, specs: parseSpecs(item?.specs, ['Standard Layout']) };
+        else if (['mouse', 'trackpad'].includes(type)) components.mouse = { ...baseComponent, specs: parseSpecs(item?.specs, ['Standard Optical']) };
+        else if (['pc', 'computer', 'desktop', 'tower', 'pc unit'].includes(type)) components.pc = { ...baseComponent, specs: parseSpecs(item?.specs, ['Standard config']) };
+        else if (['desk', 'table', 'physical desk', 'workstation'].includes(type)) components.desk = { ...baseComponent, specs: parseSpecs(item?.specs, ['Standard Desk']) };
     });
     return components;
 };
 
-const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpdate }: StationDetailModalProps) => {
+const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose, onUpdate }: StationDetailModalProps) => {
     // Derive initial state from props
     const { addRequest } = useServiceRequests();
     const { user } = useAuth();
@@ -59,13 +99,11 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
     const [editForm, setEditForm] = useState<{ name: string; condition: ComponentCondition; status: ComponentStatus; specs: string[] } | null>(null);
     const [isReporting, setIsReporting] = useState(false);
     const [reportReason, setReportReason] = useState('');
-    const [viewLogs, setViewLogs] = useState(false);
 
     useEffect(() => {
         setIsEditing(false);
         setEditForm(null);
         setIsReporting(false);
-        setViewLogs(false);
     }, [selectedComponent]);
 
     const handleComponentClick = (type: ComponentType) => {
@@ -77,48 +115,45 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
         setReportReason('');
     };
 
-    const submitReport = () => {
+    const submitReport = async () => {
         if (!selectedComponent || !reportReason.trim()) return;
         const comp = stationComponents[selectedComponent];
 
-        // 1. Create Service Request
-        addRequest({
-            componentId: comp.id,
-            componentName: comp.name,
-            stationId: station.id,
-            stationName: station.name,
-            roomId: 'lab-comp', // Hardcoded for this context
-            description: reportReason,
-            requesterName: user?.name || 'Unknown User',
-            componentCategory: 'Station Component', // Generic for station/visual parts
-        });
+        try {
+            // 1. Create Service Request
+            await addRequest({
+                componentId: comp.id,
+                componentName: comp.name,
+                stationId: station.id,
+                stationName: station.name,
+                roomId: roomId ?? 'unknown',
+                description: reportReason,
+                requesterName: user?.name || 'Unknown User',
+                componentCategory: 'Station Component', // Generic for station/visual parts
+            });
 
-        // 2. Update Component Status & Log
-        const newLog: ItemLog = {
-            id: `log-${Date.now()}`,
-            date: new Date().toISOString(),
-            action: 'Reported',
-            details: `Issue reported: ${reportReason}`
-        };
+            // 2. Update Component Status & Log
+            const newLog = createComponentLog('REPORTED', `Issue reported: ${reportReason}`);
 
-        const updatedComponent = {
-            ...comp,
-            status: 'service' as ComponentStatus, // Auto set to service
-            logs: [newLog, ...(comp.logs || [])]
-        };
+            const updatedComponent = {
+                ...comp,
+                condition: 'service' as ComponentCondition,
+                status: 'maintenance' as ComponentStatus,
+                logs: [newLog, ...(comp.logs || [])]
+            };
 
-        const newComponents = { ...stationComponents, [selectedComponent]: updatedComponent };
-        setStationComponents(newComponents);
+            const newComponents = { ...stationComponents, [selectedComponent]: updatedComponent };
+            setStationComponents(newComponents);
 
-        // Update Parent
-        // (Similar logic to handleSave) - For brevity in this replace block, we update parent here
-        // Ideally refactor update logic to a reusable function
-        updateParent(newComponents);
+            // Update parent container once
+            updateParent(newComponents);
 
-        updateParent(newComponents);
-
-        showToast(t('report_success'), 'success');
-        setIsReporting(false);
+            showToast(t('report_success'), 'success');
+            setIsReporting(false);
+        } catch (error) {
+            console.error('Failed to submit station report:', error);
+            showToast('Gagal mengirim laporan ke backend.', 'error');
+        }
     };
 
     const updateParent = (currentComponents: any) => {
@@ -159,6 +194,13 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
 
         const updatedSpecs = editForm.specs.filter(s => s.trim() !== '');
         const specsString = updatedSpecs.join(',');
+        const previousLogs = ensureComponentLogs(stationComponents[selectedComponent]?.logs);
+        const existingComponent = stationComponents[selectedComponent];
+        const saveAction = existingComponent ? 'UPDATED' : 'CREATED';
+        const saveDetails = saveAction === 'CREATED'
+            ? `Komponen ${editForm.name || selectedComponent} ditambahkan.`
+            : `Konfigurasi komponen ${editForm.name || selectedComponent} diperbarui.`;
+        const nextLogs = [createComponentLog(saveAction, saveDetails), ...previousLogs];
 
         // Update local state for immediate feedback
         const updatedComponent = {
@@ -167,7 +209,8 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
             status: editForm.status,
             condition: editForm.condition,
             specs: updatedSpecs,
-            type: selectedComponent === 'pc' ? 'PC Unit' : selectedComponent.charAt(0).toUpperCase() + selectedComponent.slice(1) // Simple type naming
+            type: selectedComponent === 'pc' ? 'PC Unit' : selectedComponent.charAt(0).toUpperCase() + selectedComponent.slice(1), // Simple type naming
+            logs: nextLogs
         };
 
         const newComponents = {
@@ -181,7 +224,7 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
         // We need to construct the full Item object list
         const newItems = station.items ? [...station.items] : [];
         const existingItemIndex = newItems.findIndex(i => {
-            const t = i.type.toLowerCase();
+            const t = normalizeType(i.type);
             if (selectedComponent === 'monitor' && ['monitor', 'screen'].includes(t)) return true;
             if (selectedComponent === 'pc' && ['pc', 'computer', 'pc unit'].includes(t)) return true;
             if (selectedComponent === 'keyboard' && ['keyboard'].includes(t)) return true;
@@ -197,7 +240,7 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
             status: editForm.status,
             condition: editForm.condition, // Ensure condition is passed
             specs: specsString,
-            logs: stationComponents[selectedComponent]?.logs || []
+            logs: nextLogs
         };
 
         if (existingItemIndex >= 0) {
@@ -221,7 +264,7 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
         // Remove from parent container
         // Logic to identifying which item to delete based on selected slot
         const newItems = (station.items || []).filter(i => {
-            const t = i.type.toLowerCase();
+            const t = normalizeType(i.type);
             if (selectedComponent === 'monitor' && ['monitor', 'screen'].includes(t)) return false;
             if (selectedComponent === 'pc' && ['pc', 'computer', 'pc unit'].includes(t)) return false;
             if (selectedComponent === 'keyboard' && ['keyboard'].includes(t)) return false;
@@ -331,10 +374,10 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
                                             className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none opacity-50 cursor-not-allowed"
                                             disabled
                                         >
-                                            <option value="good">{t('good')}</option>
-                                            <option value="service">Service Required</option>
-                                            <option value="damaged">{t('damaged')}</option>
-                                            <option value="broken">{t('broken')}</option>
+                                            <option value="available">Available</option>
+                                            <option value="in_use">In Use</option>
+                                            <option value="maintenance">Maintenance</option>
+                                            <option value="missing">Missing</option>
                                         </select>
                                         <p className="text-[10px] text-slate-500 pt-1">{t('status_managed_hint')}</p>
                                     </div>
@@ -451,13 +494,29 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
                                         }) : <p className="text-sm text-slate-600 italic">{t('no_specs')}</p>}
                                     </motion.div>
 
+                                    <div className="space-y-3">
+                                        <h5 className="text-xs text-slate-500 uppercase tracking-widest font-bold border-b border-slate-800 pb-2">
+                                            {t('component_history')}
+                                        </h5>
+                                        <div className="max-h-40 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                            {ensureComponentLogs(stationComponents[selectedComponent].logs).map((log) => (
+                                                <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5">
+                                                    <div className="text-[11px] text-slate-400">
+                                                        {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
+                                                    </div>
+                                                    <div className="text-xs font-semibold text-white mt-1">{log.action}</div>
+                                                    <div className="text-xs text-slate-300 mt-1">
+                                                        {typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
                                     {/* Action Buttons */}
                                     <div className="flex gap-3 pt-2">
                                         <button onClick={handleInitiateReport} className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/50 text-amber-500 py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2">
                                             <AlertTriangle size={16} /> {t('report_issue')}
-                                        </button>
-                                        <button onClick={() => setViewLogs(true)} className="px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg transition-all" title="View Logs">
-                                            <FileText size={18} />
                                         </button>
                                     </div>
 
@@ -487,40 +546,12 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
                                         placeholder="E.g., Screen flickering, Key stuck, Device not responding..."
                                     />
                                     <div className="flex gap-3 mt-auto">
-                                        <button onClick={submitReport} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white py-2 rounded-lg font-medium">{t('submit_report')}</button>
+                                        <button onClick={() => { void submitReport(); }} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white py-2 rounded-lg font-medium">{t('submit_report')}</button>
                                         <button onClick={() => setIsReporting(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg">{t('btn_cancel')}</button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Logs View Overlay */}
-                            {viewLogs && selectedComponent && stationComponents[selectedComponent] && (
-                                <div className="absolute inset-0 bg-slate-900 z-50 flex flex-col p-6 animate-in slide-in-from-right duration-200">
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h4 className="text-lg font-bold text-white flex items-center gap-2">
-                                            <FileText className="text-indigo-400" /> {t('component_history')}
-                                        </h4>
-                                        <button onClick={() => setViewLogs(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
-                                    </div>
-                                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4">
-                                        {stationComponents[selectedComponent].logs && stationComponents[selectedComponent].logs.length > 0 ? (
-                                            stationComponents[selectedComponent].logs.map((log) => (
-                                                <div key={log.id} className="relative pl-6 border-l-2 border-slate-700 pb-4 last:border-0 last:pb-0">
-                                                    <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-slate-900 border-2 border-indigo-500" />
-                                                    <div className="text-xs text-slate-500 mb-1">{new Date(log.date).toLocaleDateString()} • {new Date(log.date).toLocaleTimeString()}</div>
-                                                    <div className="text-sm font-bold text-white mb-1">{log.action}</div>
-                                                    <div className="text-xs text-slate-400 bg-slate-800/50 p-2 rounded">{log.details}</div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="text-center text-slate-500 py-10">
-                                                <div className="inline-block p-3 bg-slate-800 rounded-full mb-3"><Clock className="opacity-50" /></div>
-                                                <p>{t('no_history')}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
 
                             {/* Empty/Ghost State Selected - Now mostly purely for fallback if selected in weird state */}
                             {selectedComponent && !stationComponents[selectedComponent] && !isEditing && (
@@ -625,17 +656,6 @@ const StationDetailModal = ({ station, initialSelectedComponent, onClose, onUpda
                                     </div>
                                 </motion.div>
                             )}
-                        </div>
-
-                        {/* Footer Actions */}
-                        <div className="grid grid-cols-2 gap-4 mt-auto pt-6 border-t border-slate-800">
-                            <button className="flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium text-sm transition-colors shadow-lg shadow-indigo-900/20">
-                                <Zap size={16} />
-                                {selectedComponent ? t('test_component') : t('system_check')}
-                            </button>
-                            <button className="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium text-sm transition-colors border border-slate-600">
-                                {t('view_logs')}
-                            </button>
                         </div>
 
                     </div>

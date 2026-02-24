@@ -10,7 +10,7 @@ import { AnimatePresence } from 'framer-motion';
 
 const ServiceRequests = () => {
     const { requests, updateRequestStatus } = useServiceRequests();
-    const { getRoom, updateRoom, rooms } = useInventory(); // Get access to live inventory
+    const { getRoom, updateRoom, rooms, refreshRooms } = useInventory(); // Get access to live inventory
     const { t } = useLanguage();
     const [filterStatus, setFilterStatus] = useState<RequestStatus | 'all'>('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -19,6 +19,7 @@ const ServiceRequests = () => {
 
     // Modal State
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
+    const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
     const [modalType, setModalType] = useState<'station' | 'container' | null>(null);
     const [initialSelection, setInitialSelection] = useState<string | undefined>(undefined);
 
@@ -33,9 +34,10 @@ const ServiceRequests = () => {
         const container = room.containers?.find(c => c.id === req.stationId);
 
         if (container) {
+            setSelectedRoomId(room.id);
             setSelectedContainer(container);
 
-            if (container.type === 'table') {
+            if (container.type === 'table' && room.type === 'computer') {
                 setModalType('station');
                 // Map componentId to Station Component Key ('monitor', 'pc', etc.)
                 // We find the item in the container to check its type
@@ -61,23 +63,34 @@ const ServiceRequests = () => {
         }
     };
 
-    const handleUpdateContainer = (updatedContainer: Container) => {
+    const handleUpdateContainer = async (updatedContainer: Container) => {
         const room = rooms.find(r => r.containers?.some(c => c.id === updatedContainer.id));
         if (room) {
             const updatedRoom = {
                 ...room,
                 containers: room.containers?.map(c => c.id === updatedContainer.id ? updatedContainer : c) || []
             };
-            updateRoom(updatedRoom);
-            setSelectedContainer(updatedContainer);
+            try {
+                await updateRoom(updatedRoom);
+                setSelectedContainer(updatedContainer);
+            } catch (error) {
+                console.error('Failed to sync container update:', error);
+                alert(error instanceof Error ? error.message : 'Gagal menyimpan perubahan container.');
+            }
         }
     };
 
     const filteredRequests = requests.filter(req => {
         const matchesStatus = filterStatus === 'all' || req.status === filterStatus;
-        const matchesSearch = req.componentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            req.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            req.stationName.toLowerCase().includes(searchTerm.toLowerCase());
+        const normalizedSearch = searchTerm.toLowerCase();
+        const componentName = typeof req.componentName === 'string' ? req.componentName.toLowerCase() : '';
+        const description = typeof req.description === 'string' ? req.description.toLowerCase() : '';
+        const stationName = typeof req.stationName === 'string' ? req.stationName.toLowerCase() : '';
+        const roomName = typeof req.roomName === 'string' ? req.roomName.toLowerCase() : '';
+        const matchesSearch = componentName.includes(normalizedSearch) ||
+            description.includes(normalizedSearch) ||
+            stationName.includes(normalizedSearch) ||
+            roomName.includes(normalizedSearch);
         return matchesStatus && matchesSearch;
     });
 
@@ -90,23 +103,41 @@ const ServiceRequests = () => {
         }
     };
 
-    const handleReject = () => {
+    const handleReject = async () => {
         if (!selectedRequest || !rejectionReason.trim()) return;
-        updateRequestStatus(selectedRequest.id, 'denied', rejectionReason);
-        setIsRejectModalOpen(false);
-        setRejectionReason('');
-        setSelectedRequest(null);
+        try {
+            await updateRequestStatus(selectedRequest.id, 'denied', rejectionReason);
+            await refreshRooms();
+            setIsRejectModalOpen(false);
+            setRejectionReason('');
+            setSelectedRequest(null);
+        } catch (error) {
+            console.error('Failed to reject request:', error);
+            alert(error instanceof Error ? error.message : 'Gagal memperbarui request.');
+        }
     };
 
-    const handleComplete = (outcome: 'repaired' | 'broken') => {
+    const handleComplete = async (outcome: 'repaired' | 'broken') => {
         if (!selectedRequest) return;
-        // Ideally we would update the component status here too, but for this mock
-        // we mainly trust the status propagation logic in StationDetailModal (or future integration).
-        // For now, we mark the request completed.
-        // NOTE: Real implementation would physically update the Item's status in the Room/Container context.
-        updateRequestStatus(selectedRequest.id, 'completed', `Outcome: ${outcome}`);
-        setIsCompleteModalOpen(false);
-        setSelectedRequest(null);
+        try {
+            await updateRequestStatus(selectedRequest.id, 'completed', undefined, outcome);
+            await refreshRooms();
+            setIsCompleteModalOpen(false);
+            setSelectedRequest(null);
+        } catch (error) {
+            console.error('Failed to complete request:', error);
+            alert(error instanceof Error ? error.message : 'Gagal memperbarui request.');
+        }
+    };
+
+    const handleAccept = async (requestId: string) => {
+        try {
+            await updateRequestStatus(requestId, 'accepted');
+            await refreshRooms();
+        } catch (error) {
+            console.error('Failed to accept request:', error);
+            alert(error instanceof Error ? error.message : 'Gagal memperbarui request.');
+        }
     };
 
     return (
@@ -155,7 +186,11 @@ const ServiceRequests = () => {
                 </div>
                 <div className="overflow-y-auto flex-1">
                     {filteredRequests.length > 0 ? (
-                        filteredRequests.map(req => (
+                        filteredRequests.map(req => {
+                            const roomLabel = req.roomName || getRoom(req.roomId)?.name || req.roomId || 'Unknown Room';
+                            const requesterLabel = req.requesterName || 'Unknown';
+
+                            return (
                             <div key={req.id} className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 items-center hover:bg-gray-50 transition-colors">
                                 <div className="col-span-3">
                                     <div
@@ -167,11 +202,11 @@ const ServiceRequests = () => {
                                             <Search size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-400" />
                                         </div>
                                         <div className="text-xs text-gray-500 flex flex-col gap-0.5 mt-0.5 group-hover:text-gray-600">
-                                            <span>{req.roomId === 'lab-comp' ? 'Computer Lab 1' : req.roomId} • {req.stationName}</span>
+                                            <span>{roomLabel} - {req.stationName}</span>
                                             {(req.componentSku || req.componentCategory) && (
                                                 <span className="text-indigo-600 font-mono text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded w-fit group-hover:bg-indigo-100 transition-colors">
                                                     {req.componentSku ? `${req.componentSku}` : ''}
-                                                    {req.componentSku && req.componentCategory ? ' • ' : ''}
+                                                    {req.componentSku && req.componentCategory ? ' - ' : ''}
                                                     {req.componentCategory}
                                                 </span>
                                             )}
@@ -184,9 +219,9 @@ const ServiceRequests = () => {
                                 <div className="col-span-2">
                                     <div className="flex items-center gap-2">
                                         <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">
-                                            {req.requesterName ? req.requesterName.charAt(0) : '?'}
+                                            {requesterLabel.charAt(0)}
                                         </div>
-                                        <span className="text-sm font-medium text-gray-700 truncate">{req.requesterName || 'Unknown'}</span>
+                                        <span className="text-sm font-medium text-gray-700 truncate">{requesterLabel}</span>
                                     </div>
                                 </div>
                                 <div className="col-span-2 text-xs text-gray-500">
@@ -207,7 +242,7 @@ const ServiceRequests = () => {
                                         {req.status === 'pending' && (
                                             <>
                                                 <button
-                                                    onClick={() => updateRequestStatus(req.id, 'accepted')}
+                                                    onClick={() => { void handleAccept(req.id); }}
                                                     className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded shadow-sm border border-emerald-100 bg-white"
                                                     title="Accept"
                                                 >
@@ -234,7 +269,8 @@ const ServiceRequests = () => {
                                     </div>
                                 </div>
                             </div>
-                        ))
+                            );
+                        })
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-12">
                             <Clock size={48} className="mb-4 opacity-20" />
@@ -264,7 +300,7 @@ const ServiceRequests = () => {
                                 {t('btn_cancel')}
                             </button>
                             <button
-                                onClick={handleReject}
+                                onClick={() => { void handleReject(); }}
                                 disabled={!rejectionReason.trim()}
                                 className="px-4 py-2 bg-rose-600 text-white rounded-lg text-sm font-medium hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
@@ -283,7 +319,7 @@ const ServiceRequests = () => {
                         <p className="text-sm text-gray-500 mb-6">{t('complete_desc')}</p>
                         <div className="grid grid-cols-2 gap-4">
                             <button
-                                onClick={() => handleComplete('repaired')}
+                                onClick={() => { void handleComplete('repaired'); }}
                                 className="flex flex-col items-center gap-2 p-4 border border-emerald-200 bg-emerald-50 rounded-xl hover:bg-emerald-100 transition-colors group"
                             >
                                 <CheckCircle className="text-emerald-500 group-hover:scale-110 transition-transform" size={32} />
@@ -291,7 +327,7 @@ const ServiceRequests = () => {
                                 <span className="text-xs text-emerald-600/80 text-center">{t('outcome_repaired_desc')}</span>
                             </button>
                             <button
-                                onClick={() => handleComplete('broken')}
+                                onClick={() => { void handleComplete('broken'); }}
                                 className="flex flex-col items-center gap-2 p-4 border border-rose-200 bg-rose-50 rounded-xl hover:bg-rose-100 transition-colors group"
                             >
                                 <XCircle className="text-rose-500 group-hover:scale-110 transition-transform" size={32} />
@@ -315,17 +351,19 @@ const ServiceRequests = () => {
                         <StationDetailModal
                             key="station-modal"
                             station={selectedContainer}
+                            roomId={selectedRoomId ?? undefined}
                             initialSelectedComponent={initialSelection}
-                            onClose={() => { setSelectedContainer(null); setInitialSelection(undefined); }}
-                            onUpdate={handleUpdateContainer}
+                            onClose={() => { setSelectedContainer(null); setSelectedRoomId(null); setInitialSelection(undefined); }}
+                            onUpdate={(container) => { void handleUpdateContainer(container); }}
                         />
                     ) : (
                         <ContainerDetailModal
                             key="container-modal"
                             container={selectedContainer}
+                            roomId={selectedRoomId ?? undefined}
                             initialItemId={initialSelection}
-                            onClose={() => { setSelectedContainer(null); setInitialSelection(undefined); }}
-                            onUpdate={handleUpdateContainer}
+                            onClose={() => { setSelectedContainer(null); setSelectedRoomId(null); setInitialSelection(undefined); }}
+                            onUpdate={(container) => { void handleUpdateContainer(container); }}
                         />
                     )
                 )}

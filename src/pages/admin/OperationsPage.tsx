@@ -4,6 +4,23 @@ import { ArrowRightLeft, ClipboardList, CheckCircle, Search, Calendar, User as U
 import type { Item, ComponentCondition, ComponentStatus, Room, Container, ItemLog } from '../../types';
 import VerificationModal from '../../components/VerificationModal';
 
+const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
+    if (typeof rawDetails === 'string') {
+        try {
+            const parsed = JSON.parse(rawDetails);
+            return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {};
+        } catch {
+            return {};
+        }
+    }
+
+    if (typeof rawDetails === 'object' && rawDetails !== null) {
+        return rawDetails as Record<string, unknown>;
+    }
+
+    return {};
+};
+
 export default function OperationsPage() {
     const { rooms, updateRoom } = useInventory();
     const [activeTab, setActiveTab] = useState<'transfer' | 'usage'>('transfer');
@@ -74,7 +91,7 @@ export default function OperationsPage() {
         setIsVerificationOpen(true);
     };
 
-    const executeTransfer = (verifierInfo: string) => {
+    const executeTransfer = async (verifierInfo: string) => {
         const targetRoom = rooms.find(r => r.id === transferForm.targetRoomId);
         const targetContainer = targetRoom?.containers.find(c => c.id === transferForm.targetContainerId);
 
@@ -95,12 +112,22 @@ export default function OperationsPage() {
 
         selectedItemsData.forEach(({ item, room: sourceRoom, container: sourceContainer }) => {
             // Re-fetch objects from currentRoomsState to ensure we have latest version during the loop
-            const currentSourceRoom = currentRoomsState.find(r => r.id === sourceRoom.id)!;
-            const currentSourceContainer = currentSourceRoom.containers.find(c => c.id === sourceContainer.id)!;
-            const currentItem = currentSourceContainer.items.find(i => i.id === item.id)!;
+            const currentSourceRoom = currentRoomsState.find(r => r.id === sourceRoom.id);
+            const currentTargetRoom = currentRoomsState.find(r => r.id === targetRoom.id);
+            if (!currentSourceRoom || !currentTargetRoom) {
+                return;
+            }
 
-            const currentTargetRoom = currentRoomsState.find(r => r.id === targetRoom.id)!;
-            const currentTargetContainer = currentTargetRoom.containers.find(c => c.id === targetContainer.id)!;
+            const currentSourceContainer = currentSourceRoom.containers.find(c => c.id === sourceContainer.id);
+            const currentTargetContainer = currentTargetRoom.containers.find(c => c.id === targetContainer.id);
+            if (!currentSourceContainer || !currentTargetContainer) {
+                return;
+            }
+
+            const currentItem = currentSourceContainer.items.find(i => i.id === item.id);
+            if (!currentItem) {
+                return;
+            }
 
             // 1. Create Log
             const newLog: ItemLog = {
@@ -137,8 +164,14 @@ export default function OperationsPage() {
 
             // 3. Add to Target
             // Re-fetch target room from state (it might be same as source room!)
-            const refreshedTargetRoom = currentRoomsState.find(r => r.id === targetRoom.id)!;
-            const refreshedTargetContainer = refreshedTargetRoom.containers.find(c => c.id === targetContainer.id)!;
+            const refreshedTargetRoom = currentRoomsState.find(r => r.id === targetRoom.id);
+            if (!refreshedTargetRoom) {
+                return;
+            }
+            const refreshedTargetContainer = refreshedTargetRoom.containers.find(c => c.id === targetContainer.id);
+            if (!refreshedTargetContainer) {
+                return;
+            }
 
             const updatedTargetContainerObj = {
                 ...refreshedTargetContainer,
@@ -151,13 +184,16 @@ export default function OperationsPage() {
             updateLocalState(updatedTargetRoomObj);
         });
 
-        // Commit all changes
-        currentRoomsState.forEach(r => updateRoom(r));
-
-        setShowSuccess(`Successfully moved ${selectedItemIds.length} items to ${targetRoom.name}`);
-        setTimeout(() => setShowSuccess(null), 3000);
-        setSelectedItemIds([]);
-        setSearchTerm('');
+        try {
+            await Promise.all(currentRoomsState.map((roomState) => updateRoom(roomState)));
+            setShowSuccess(`Successfully moved ${selectedItemIds.length} items to ${targetRoom.name}`);
+            setTimeout(() => setShowSuccess(null), 3000);
+            setSelectedItemIds([]);
+            setSearchTerm('');
+        } catch (error) {
+            console.error('Failed to persist transfer:', error);
+            alert(error instanceof Error ? error.message : 'Failed to save transfer into backend.');
+        }
     };
 
     // --- Usage Logic ---
@@ -193,7 +229,7 @@ export default function OperationsPage() {
         setIsVerificationOpen(true);
     };
 
-    const executeUsage = (verifierInfo: string) => {
+    const executeUsage = async (verifierInfo: string) => {
         const currentRoomsState = [...rooms];
         const updateLocalState = (updatedRoom: Room) => {
             const idx = currentRoomsState.findIndex(r => r.id === updatedRoom.id);
@@ -201,9 +237,18 @@ export default function OperationsPage() {
         };
 
         selectedItemsData.forEach(({ item, room: itemRoom, container: itemContainer }) => {
-            const currentRoom = currentRoomsState.find(r => r.id === itemRoom.id)!;
-            const currentContainer = currentRoom.containers.find(c => c.id === itemContainer.id)!;
-            const currentItem = currentContainer.items.find(i => i.id === item.id)!;
+            const currentRoom = currentRoomsState.find(r => r.id === itemRoom.id);
+            if (!currentRoom) {
+                return;
+            }
+            const currentContainer = currentRoom.containers.find(c => c.id === itemContainer.id);
+            if (!currentContainer) {
+                return;
+            }
+            const currentItem = currentContainer.items.find(i => i.id === item.id);
+            if (!currentItem) {
+                return;
+            }
 
             // 1. Create Log
             const newLog: ItemLog = {
@@ -238,12 +283,16 @@ export default function OperationsPage() {
             updateLocalState(updatedRoomObj);
         });
 
-        currentRoomsState.forEach(r => updateRoom(r));
-
-        setShowSuccess(`Successfully ${usageForm.actionType === 'checkout' ? 'checked out' : 'returned'} ${selectedItemIds.length} items`);
-        setTimeout(() => setShowSuccess(null), 3000);
-        setSelectedItemIds([]);
-        setSearchTerm('');
+        try {
+            await Promise.all(currentRoomsState.map((roomState) => updateRoom(roomState)));
+            setShowSuccess(`Successfully ${usageForm.actionType === 'checkout' ? 'checked out' : 'returned'} ${selectedItemIds.length} items`);
+            setTimeout(() => setShowSuccess(null), 3000);
+            setSelectedItemIds([]);
+            setSearchTerm('');
+        } catch (error) {
+            console.error('Failed to persist usage operation:', error);
+            alert(error instanceof Error ? error.message : 'Failed to save usage operation into backend.');
+        }
     };
 
     return (
@@ -680,8 +729,8 @@ export default function OperationsPage() {
                     setPendingAction(null);
                 }}
                 onVerify={(info) => {
-                    if (pendingAction === 'transfer') executeTransfer(info);
-                    if (pendingAction === 'usage') executeUsage(info);
+                    if (pendingAction === 'transfer') void executeTransfer(info);
+                    if (pendingAction === 'usage') void executeUsage(info);
                 }}
                 title="Verifikasi Transaksi"
                 description="Masukkan nama lengkap, nomor HP, atau email untuk memverifikasi transaksi ini."
@@ -737,13 +786,11 @@ function PendingVerifications() {
     const [verifyingLog, setVerifyingLog] = useState<{ roomName: string, itemName: string, log: ItemLog } | null>(null);
 
     const pendingLogs = recentLogs.filter(entry => {
-        try {
-            const details = JSON.parse(entry.log.details);
-            return entry.log.action === 'TRANSFER' && details.verificationStatus === 'pending';
-        } catch { return false; }
+        const details = parseLogDetails(entry.log.details);
+        return entry.log.action === 'TRANSFER' && details.verificationStatus === 'pending';
     });
 
-    const handleConfirm = (condition: ComponentCondition) => {
+    const handleConfirm = async (condition: ComponentCondition) => {
         if (!verifyingLog) return;
 
         const targetLogEntry = verifyingLog;
@@ -760,7 +807,7 @@ function PendingVerifications() {
                         found = true;
                         // Update Log
                         const updatedLogs = [...item.logs];
-                        const oldDetails = JSON.parse(updatedLogs[logIndex].details);
+                        const oldDetails = parseLogDetails(updatedLogs[logIndex].details);
                         updatedLogs[logIndex] = {
                             ...updatedLogs[logIndex],
                             details: JSON.stringify({
@@ -783,8 +830,12 @@ function PendingVerifications() {
         }));
 
         if (found) {
-            newRooms.forEach(r => updateRoom(r));
-            setVerifyingLog(null);
+            try {
+                await Promise.all(newRooms.map((roomState) => updateRoom(roomState)));
+                setVerifyingLog(null);
+            } catch (error) {
+                console.error('Failed to persist verification update:', error);
+            }
         }
     };
 
@@ -801,7 +852,7 @@ function PendingVerifications() {
                         <div>
                             <div className="font-bold text-slate-700 text-sm">{entry.itemName}</div>
                             <div className="text-xs text-slate-500">
-                                To: {JSON.parse(entry.log.details).to}
+                                To: {String(parseLogDetails(entry.log.details).to ?? '-')}
                             </div>
                         </div>
                         <button
@@ -823,10 +874,10 @@ function PendingVerifications() {
                             How is the condition of <b>{verifyingLog.itemName}</b> after arrival?
                         </p>
                         <div className="grid grid-cols-2 gap-3">
-                            <button onClick={() => handleConfirm('good')} className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100">Good</button>
-                            <button onClick={() => handleConfirm('service')} className="p-3 bg-amber-50 border border-amber-200 text-amber-700 font-bold rounded-xl hover:bg-amber-100">Service</button>
-                            <button onClick={() => handleConfirm('damaged')} className="p-3 bg-orange-50 border border-orange-200 text-orange-700 font-bold rounded-xl hover:bg-orange-100">Damaged</button>
-                            <button onClick={() => handleConfirm('broken')} className="p-3 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-xl hover:bg-rose-100">Broken</button>
+                            <button onClick={() => { void handleConfirm('good'); }} className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100">Good</button>
+                            <button onClick={() => { void handleConfirm('service'); }} className="p-3 bg-amber-50 border border-amber-200 text-amber-700 font-bold rounded-xl hover:bg-amber-100">Service</button>
+                            <button onClick={() => { void handleConfirm('damaged'); }} className="p-3 bg-orange-50 border border-orange-200 text-orange-700 font-bold rounded-xl hover:bg-orange-100">Damaged</button>
+                            <button onClick={() => { void handleConfirm('broken'); }} className="p-3 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-xl hover:bg-rose-100">Broken</button>
                         </div>
                         <button onClick={() => setVerifyingLog(null)} className="w-full mt-4 py-2 text-slate-400 font-bold text-sm hover:text-slate-600">Cancel</button>
                     </div>
@@ -868,8 +919,7 @@ function RecentOpsList() {
             <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                 {filteredLogs.length > 0 ? (
                     filteredLogs.map((entry, idx) => {
-                        let details = {};
-                        try { details = JSON.parse(entry.log.details); } catch { /* Ignore parse error */ }
+                        const details = parseLogDetails(entry.log.details);
 
                         return (
                             <div

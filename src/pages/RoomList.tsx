@@ -59,7 +59,7 @@ const getColor = (type: Room['type']) => {
 
 const RoomList = () => {
     const navigate = useNavigate();
-    const { rooms, addRoom, updateRoom, deleteRoom } = useInventory();
+    const { rooms, addRoom, saveRoom, deleteRoom } = useInventory();
     const { t } = useLanguage();
     const { portalType } = usePortal();
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -84,34 +84,49 @@ const RoomList = () => {
         setRoomToDelete(roomId);
     };
 
-    const confirmDeleteRoom = () => {
+    const confirmDeleteRoom = async () => {
         if (roomToDelete) {
-            deleteRoom(roomToDelete);
-            setRoomToDelete(null);
+            try {
+                await deleteRoom(roomToDelete);
+                setRoomToDelete(null);
+            } catch (error) {
+                console.error('Failed to delete room:', error);
+                alert('Gagal menghapus room. Silakan coba lagi.');
+            }
         }
     };
 
-    const handleSaveRoom = () => {
-        if (!currentRoom.name || !currentRoom.id) return;
+    const handleSaveRoom = async () => {
+        if (!currentRoom.name) return;
 
         if (currentRoom.type === 'other' && !currentRoom.customType) {
             alert('Please specify the room type');
             return;
         }
 
-        const roomData = currentRoom as Room;
-        const exists = rooms.find((r) => r.id === roomData.id);
+        const roomData = currentRoom as Partial<Room>;
+        const isEditing = !!roomData.id && rooms.some((r) => r.id === roomData.id);
 
-        if (exists && exists.id === roomData.id) {
-            updateRoom(roomData);
-        } else if (exists) {
-            alert('Room ID must be unique');
-            return;
-        } else {
-            addRoom({ ...roomData, containers: [] });
+        try {
+            if (isEditing) {
+                await saveRoom(roomData as Room);
+            } else {
+                await addRoom({
+                    id: roomData.id,
+                    name: roomData.name || '',
+                    category: portalType,
+                    type: roomData.type || (portalType === 'lab' ? 'computer' : 'classroom'),
+                    customType: roomData.customType,
+                    capacity: roomData.capacity || 0,
+                    containers: []
+                });
+            }
+
+            setIsModalOpen(false);
+        } catch (error) {
+            console.error('Failed to save room:', error);
+            alert('Gagal menyimpan room. Silakan coba lagi.');
         }
-
-        setIsModalOpen(false);
     };
 
     return (

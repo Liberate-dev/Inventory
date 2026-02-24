@@ -53,6 +53,7 @@ export interface ServiceRequest {
     stationId: string;
     stationName: string;
     roomId: string;
+    roomName?: string;
     description: string;
     requesterName?: string;
     componentSku?: string;

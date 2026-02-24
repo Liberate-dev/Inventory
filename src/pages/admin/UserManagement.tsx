@@ -10,15 +10,22 @@ const UserManagement = () => {
     const [editingUser, setEditingUser] = useState<User | null>(null);
 
     // Filtered Users
-    const filteredUsers = allUsers.filter(u =>
-        u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        u.username.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const normalizedSearch = searchTerm.toLowerCase();
+    const filteredUsers = allUsers.filter((u) => {
+        const name = typeof u.name === 'string' ? u.name.toLowerCase() : '';
+        const email = typeof u.email === 'string' ? u.email.toLowerCase() : '';
+        const username = typeof u.username === 'string' ? u.username.toLowerCase() : '';
+        return name.includes(normalizedSearch) || email.includes(normalizedSearch) || username.includes(normalizedSearch);
+    });
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (confirm('Are you sure you want to delete this user?')) {
-            deleteUser(id);
+            try {
+                await deleteUser(id);
+            } catch (error) {
+                console.error('Failed to delete user:', error);
+                alert(error instanceof Error ? error.message : 'Failed to delete user.');
+            }
         }
     };
 
@@ -37,14 +44,17 @@ const UserManagement = () => {
 
         const handleSubmit = async (e: React.FormEvent) => {
             e.preventDefault();
-            // In a real app, send password. For mock, we ignore it or could adding to user object if we wanted.
-
-            if (userToEdit) {
-                updateUser(userToEdit.id, formData);
-            } else {
-                await registerUser(formData as Omit<User, 'id'>);
+            try {
+                if (userToEdit) {
+                    await updateUser(userToEdit.id, formData, password);
+                } else {
+                    await registerUser(formData as Omit<User, 'id'>, password);
+                }
+                onClose();
+            } catch (error) {
+                console.error('Failed to save user:', error);
+                alert(error instanceof Error ? error.message : 'Failed to save user.');
             }
-            onClose();
         };
 
         return (

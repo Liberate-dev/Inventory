@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useAuth } from './AuthContext';
 
 export type PortalType = 'lab' | 'non-lab';
 
@@ -7,10 +8,14 @@ interface PortalContextType {
     setPortalType: (type: PortalType) => void;
 }
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const PREFERENCES_ENDPOINT = `${API_BASE_URL}/preferences/preferences.php`;
+
 const PortalContext = createContext<PortalContextType | undefined>(undefined);
 
 export const PortalProvider = ({ children }: { children: ReactNode }) => {
-    const [portalType, setPortalType] = useState<PortalType>(() => {
+    const { user } = useAuth();
+    const [portalType, setPortalTypeState] = useState<PortalType>(() => {
         const saved = localStorage.getItem('portal_type');
         return (saved as PortalType) || 'lab';
     });
@@ -18,6 +23,43 @@ export const PortalProvider = ({ children }: { children: ReactNode }) => {
     useEffect(() => {
         localStorage.setItem('portal_type', portalType);
     }, [portalType]);
+
+    useEffect(() => {
+        if (!user?.id) return;
+
+        const loadPortalPreference = async () => {
+            try {
+                const response = await fetch(`${PREFERENCES_ENDPOINT}?user_id=${encodeURIComponent(user.id)}`);
+                const payload = await response.json().catch(() => ({})) as { status?: string; preferences?: { portalType?: string } };
+                if (!response.ok || payload.status === 'error') return;
+
+                const backendPortalType = payload.preferences?.portalType;
+                if (backendPortalType === 'lab' || backendPortalType === 'non-lab') {
+                    setPortalTypeState(backendPortalType);
+                }
+            } catch (error) {
+                console.error('Failed to load portal preference:', error);
+            }
+        };
+
+        void loadPortalPreference();
+    }, [user?.id]);
+
+    const setPortalType = (type: PortalType) => {
+        setPortalTypeState(type);
+
+        if (!user?.id) return;
+        void fetch(PREFERENCES_ENDPOINT, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: user.id,
+                portalType: type
+            })
+        }).catch((error) => {
+            console.error('Failed to sync portal preference:', error);
+        });
+    };
 
     return (
         <PortalContext.Provider value={{ portalType, setPortalType }}>

@@ -13,9 +13,14 @@ const UserProfile = () => {
 
     if (!user) return null;
 
-    const handleSave = () => {
-        updateProfile({ name, email });
-        setIsEditing(false);
+    const handleSave = async () => {
+        try {
+            await updateProfile({ name, email });
+            setIsEditing(false);
+        } catch (error) {
+            console.error('Failed to update profile:', error);
+            alert(error instanceof Error ? error.message : 'Gagal memperbarui profil.');
+        }
     };
 
     return (
@@ -70,7 +75,13 @@ const UserProfile = () => {
                         <div className="flex justify-between items-center mb-6">
                             <h4 className="text-lg font-bold text-gray-800">Account Details</h4>
                             <button
-                                onClick={() => isEditing ? handleSave() : setIsEditing(true)}
+                                onClick={() => {
+                                    if (isEditing) {
+                                        void handleSave();
+                                        return;
+                                    }
+                                    setIsEditing(true);
+                                }}
                                 className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2 ${isEditing
                                     ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                                     : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'

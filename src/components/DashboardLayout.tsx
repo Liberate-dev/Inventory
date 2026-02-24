@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Map, LogOut, Package, AlertTriangle, User, FileText, Shield, ClipboardList, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Map, LogOut, AlertTriangle, User, FileText, Shield, ClipboardList, Menu, X } from 'lucide-react';
 import { NavLink, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -23,7 +23,6 @@ const DashboardLayout = () => {
         { icon: Map, label: portalType === 'lab' ? t('lab_rooms') : 'Rooms', path: '/dashboard/rooms', roles: ['admin', 'kepala_lab', 'guru'] },
         { icon: AlertTriangle, label: t('service_requests'), path: '/dashboard/service-requests', roles: ['admin', 'sarpras', 'kepala_lab', 'guru'] },
         { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', roles: ['admin', 'kepala_lab', 'guru'] },
-        { icon: Package, label: t('assets'), path: '/dashboard/assets', roles: ['admin', 'guru', 'kepala_lab'] },
         { icon: FileText, label: t('monthly_report'), path: '/dashboard/reports', roles: ['admin', 'kepala_sekolah', 'sarpras', 'kepala_lab'] },
         { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', roles: ['admin'] },
         { icon: User, label: t('my_profile'), path: '/dashboard/profile', roles: ['all'] },

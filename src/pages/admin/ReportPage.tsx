@@ -31,7 +31,8 @@ const ReportPage = () => {
                                     details: log.details // Keep for tooltip if needed
                                 });
 
-                                if (log.action.toLowerCase().includes('add') || log.action.toLowerCase().includes('new')) stockInCount++;
+                                const actionText = typeof log.action === 'string' ? log.action : '';
+                                if (actionText.toLowerCase().includes('add') || actionText.toLowerCase().includes('new')) stockInCount++;
                             }
                         });
                     }

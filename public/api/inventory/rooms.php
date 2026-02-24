@@ -2,117 +2,816 @@
 include_once '../config/cors.php';
 include_once '../config/database.php';
 
+header('Content-Type: application/json');
+
 $database = new Database();
 $db = $database->getConnection();
 
+if (!$db) {
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'message' => 'Database connection failed.']);
+    exit;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
+$rawInput = file_get_contents("php://input");
+$payload = json_decode($rawInput, true);
+if (!is_array($payload)) {
+    $payload = [];
+}
 
-if ($method == 'GET') {
-    // 1. Fetch all Rooms
-    $query = "SELECT * FROM rooms ORDER BY id ASC";
-    $stmt = $db->prepare($query);
-    $stmt->execute();
-    $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$entity = $_GET['entity'] ?? ($payload['entity'] ?? 'room');
 
-    // 2. Fetch all Containers
-    $queryCont = "SELECT * FROM containers";
-    $stmtCont = $db->prepare($queryCont);
-    $stmtCont->execute();
-    $containers = $stmtCont->fetchAll(PDO::FETCH_ASSOC);
+function respond(int $statusCode, array $data): void
+{
+    http_response_code($statusCode);
+    echo json_encode($data);
+    exit;
+}
 
-    // 3. Fetch all Items and their logs (Log retrieval might be heavy, optimize later if needed)
-    // For now, let's just get items. Logs can be fetched separately or we do a simple join if strictly needed for specific views.
-    // The frontend expects item.logs. Let's fetch basic item info first.
-    // NOTE: For performance, fetching ALL logs for ALL items every time is bad. 
-    // But for the current exact structure replication:
-    $queryItems = "SELECT * FROM items";
-    $stmtItems = $db->prepare($queryItems);
+function normalizeRoomRows(PDO $db): array
+{
+    // 1. Rooms
+    $stmtRooms = $db->prepare("SELECT * FROM rooms ORDER BY id ASC");
+    $stmtRooms->execute();
+    $rooms = $stmtRooms->fetchAll(PDO::FETCH_ASSOC);
+
+    // 2. Containers
+    $stmtContainers = $db->prepare(
+        "SELECT * FROM containers
+         ORDER BY room_id ASC, position_y ASC, position_x ASC, id ASC"
+    );
+    $stmtContainers->execute();
+    $containers = $stmtContainers->fetchAll(PDO::FETCH_ASSOC);
+
+    // 3. Items
+    $stmtItems = $db->prepare("SELECT * FROM items ORDER BY id ASC");
     $stmtItems->execute();
     $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Fetch logs separately to attach? 
-    // Or simpler: The frontend types.ts defines ItemLog[] on Item.
-    // Let's do a quick fetch of logs for these items.
-    $queryLogs = "SELECT * FROM item_logs ORDER BY date DESC";
-    $stmtLogs = $db->prepare($queryLogs);
+
+    // 4. Item logs
+    $stmtLogs = $db->prepare("SELECT * FROM item_logs ORDER BY date DESC");
     $stmtLogs->execute();
     $logs = $stmtLogs->fetchAll(PDO::FETCH_ASSOC);
 
-    // HIERARCHY ASSEMBLY (PHP Side to save SQL Complexity)
-    
-    // Build Item Map with Logs
-    $itemsMap = [];
-    foreach ($items as $item) {
-        // Cast types to match frontend EXPECTATIONS
-        $item['id'] = (string)$item['id']; // Frontend uses strings often for IDs?
-        // Actually DB uses INT. Let's keep consistency. Frontend TS has strings.
-        // It's safer to cast all IDs to string for frontend compatibility if interfaces say string.
-        
-        $item['quantity'] = (int)$item['quantity'];
-        $item['is_consumable'] = (bool)$item['is_consumable']; // Check tinyint conversion
-        
-        // Parse specs and parameters from JSON
-        // Note: In DB structure `parameters` is JSON.
-        $item['parameters'] = json_decode($item['parameters'] ?? '[]', true);
-        // `specs` is TEXT in DB, string in Frontend.
-        
-        // Attach logs
-        $itemLogs = array_filter($logs, function($l) use ($item) {
-            return $l['item_id'] == $item['id'];
-        });
-        $item['logs'] = array_values($itemLogs); // Reset keys
-        
-        $itemsMap[$item['container_id']][] = $item;
-    }
+    $logsByItemId = [];
+    foreach ($logs as $log) {
+        $itemId = (string)$log['item_id'];
+        $log['id'] = (string)$log['id'];
+        $log['item_id'] = $itemId;
+        $log['user_id'] = $log['user_id'] !== null ? (string)$log['user_id'] : null;
 
-    // Build Container Map with Items
-    $containersMap = [];
-    foreach ($containers as $cont) {
-        $cont['id'] = (string)$cont['id'];
-        $cont['room_id'] = (string)$cont['room_id'];
-        $cont['items'] = $itemsMap[$cont['id']] ?? [];
-        
-        // Frontend expects 'position' object {x, y}
-        $cont['position'] = [
-            'x' => (int)$cont['position_x'],
-            'y' => (int)$cont['position_y']
-        ];
-        unset($cont['position_x']);
-        unset($cont['position_y']);
-        
-        $containersMap[$cont['room_id']][] = $cont;
-    }
-
-    // Attach Containers to Rooms
-    foreach ($rooms as &$room) {
-        $room['id'] = (string)$room['id'];
-        $room['capacity'] = (int)$room['capacity'];
-        $room['containers'] = $containersMap[$room['id']] ?? [];
-    }
-
-    echo json_encode($rooms);
-
-} elseif ($method == 'POST') {
-    // Add new Room
-    $data = json_decode(file_get_contents("php://input"));
-    
-    if(isset($data->name) && isset($data->type) && isset($data->category)) {
-        $query = "INSERT INTO rooms (name, type, category, capacity) VALUES (:name, :type, :category, :capacity)";
-        $stmt = $db->prepare($query);
-        
-        $stmt->bindParam(":name", $data->name);
-        $stmt->bindParam(":type", $data->type);
-        $stmt->bindParam(":category", $data->category);
-        $capacity = $data->capacity ?? 0;
-        $stmt->bindParam(":capacity", $capacity);
-        
-        if($stmt->execute()) {
-            echo json_encode(["status" => "success", "id" => $db->lastInsertId(), "message" => "Room created."]);
-        } else {
-            echo json_encode(["status" => "error", "message" => "Unable to create room."]);
+        // Keep object payloads as JSON strings for consumers that parse them,
+        // but normalize JSON string scalars back to plain text for UI display.
+        if (isset($log['details']) && is_string($log['details'])) {
+            $decodedDetails = json_decode($log['details'], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_string($decodedDetails)) {
+                $log['details'] = $decodedDetails;
+            }
         }
+
+        $logsByItemId[$itemId][] = $log;
+    }
+
+    $itemsByContainerId = [];
+    foreach ($items as $item) {
+        $itemId = (string)$item['id'];
+        $containerId = (string)$item['container_id'];
+
+        $item['id'] = $itemId;
+        $item['condition'] = $item['condition'] ?? 'good';
+        $item['status'] = $item['status'] ?? 'available';
+        $item['quantity'] = (int)$item['quantity'];
+        $item['isConsumable'] = (bool)$item['is_consumable'];
+        $item['minStock'] = (int)$item['min_stock'];
+        $item['image_layer'] = $item['image_url'];
+        $item['parameters'] = json_decode($item['parameters'] ?? '[]', true);
+        if (!is_array($item['parameters'])) {
+            $item['parameters'] = [];
+        }
+        $item['logs'] = $logsByItemId[$itemId] ?? [];
+
+        unset($item['container_id']);
+        unset($item['is_consumable']);
+        unset($item['min_stock']);
+        unset($item['image_url']);
+
+        $itemsByContainerId[$containerId][] = $item;
+    }
+
+    $containersByRoomId = [];
+    foreach ($containers as $container) {
+        $containerId = (string)$container['id'];
+        $roomId = (string)$container['room_id'];
+
+        $container['id'] = $containerId;
+        $container['room_id'] = $roomId;
+        $container['position'] = [
+            'x' => (int)$container['position_x'],
+            'y' => (int)$container['position_y']
+        ];
+        $container['items'] = $itemsByContainerId[$containerId] ?? [];
+
+        unset($container['position_x']);
+        unset($container['position_y']);
+
+        $containersByRoomId[$roomId][] = $container;
+    }
+
+    foreach ($rooms as &$room) {
+        $roomId = (string)$room['id'];
+        $room['id'] = $roomId;
+        $room['capacity'] = (int)$room['capacity'];
+        $room['customType'] = $room['custom_type'];
+        $room['containers'] = $containersByRoomId[$roomId] ?? [];
+        unset($room['custom_type']);
+    }
+    unset($room);
+
+    return $rooms;
+}
+
+function validateId($value): ?int
+{
+    if (!is_numeric($value)) {
+        return null;
+    }
+
+    $intValue = (int)$value;
+    if ($intValue <= 0) {
+        return null;
+    }
+
+    return $intValue;
+}
+
+function normalizeLogDate($value): string
+{
+    if (is_string($value)) {
+        $trimmed = trim($value);
+        if ($trimmed !== '') {
+            $timestamp = strtotime($trimmed);
+            if ($timestamp !== false) {
+                return date('Y-m-d H:i:s', $timestamp);
+            }
+        }
+    }
+
+    if (is_int($value) || is_float($value)) {
+        $timestamp = (int)$value;
+        if ($timestamp > 0) {
+            return date('Y-m-d H:i:s', $timestamp);
+        }
+    }
+
+    return date('Y-m-d H:i:s');
+}
+
+function syncContainerItems(PDO $db, int $containerId, array $items): void
+{
+    $allowedConditions = ['good', 'service', 'damaged', 'broken'];
+    $allowedStatuses = ['available', 'in_use', 'maintenance', 'missing'];
+
+    $selectExistingStmt = $db->prepare("SELECT id FROM items WHERE container_id = :container_id");
+    $selectExistingStmt->bindParam(':container_id', $containerId, PDO::PARAM_INT);
+    $selectExistingStmt->execute();
+    $existingRows = $selectExistingStmt->fetchAll(PDO::FETCH_ASSOC);
+    $existingItemIds = [];
+    foreach ($existingRows as $existingRow) {
+        $existingItemIds[(int)$existingRow['id']] = true;
+    }
+
+    $updateItemStmt = $db->prepare(
+        "UPDATE `items`
+         SET
+            `name` = :name,
+            `type` = :type,
+            `condition` = :condition,
+            `status` = :status,
+            `specs` = :specs,
+            `image_url` = :image_url,
+            `sku` = :sku,
+            `category` = :category,
+            `is_consumable` = :is_consumable,
+            `quantity` = :quantity,
+            `unit` = :unit,
+            `min_stock` = :min_stock,
+            `parameters` = :parameters
+         WHERE `id` = :id AND `container_id` = :container_id"
+    );
+
+    $insertItemStmt = $db->prepare(
+        "INSERT INTO `items` (
+            `container_id`, `name`, `type`, `condition`, `status`, `specs`, `image_url`,
+            `sku`, `category`, `is_consumable`, `quantity`, `unit`, `min_stock`, `parameters`
+        ) VALUES (
+            :container_id, :name, :type, :condition, :status, :specs, :image_url,
+            :sku, :category, :is_consumable, :quantity, :unit, :min_stock, :parameters
+        )"
+    );
+
+    $insertLogStmt = $db->prepare(
+        "INSERT INTO item_logs (item_id, action, date, details)
+         VALUES (:item_id, :action, :date, :details)"
+    );
+    $deleteLogsStmt = $db->prepare("DELETE FROM item_logs WHERE item_id = :item_id");
+    $countLogsStmt = $db->prepare("SELECT COUNT(*) FROM item_logs WHERE item_id = :item_id");
+
+    $insertDefaultLog = function (int $itemId) use ($insertLogStmt): void {
+        $action = 'INITIALIZED';
+        $date = date('Y-m-d H:i:s');
+        $details = json_encode('Log awal item dibuat otomatis.', JSON_UNESCAPED_UNICODE);
+        if ($details === false || $details === null) {
+            $details = json_encode('');
+        }
+
+        $insertLogStmt->bindValue(':item_id', $itemId, PDO::PARAM_INT);
+        $insertLogStmt->bindValue(':action', $action, PDO::PARAM_STR);
+        $insertLogStmt->bindValue(':date', $date, PDO::PARAM_STR);
+        $insertLogStmt->bindValue(':details', $details, PDO::PARAM_STR);
+        $insertLogStmt->execute();
+    };
+    $keptItemIds = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item) || !isset($item['name']) || trim((string)$item['name']) === '') {
+            continue;
+        }
+
+        $name = trim((string)$item['name']);
+        $type = trim((string)($item['type'] ?? 'General'));
+        $condition = (string)($item['condition'] ?? 'good');
+        $status = (string)($item['status'] ?? 'available');
+        if (!in_array($condition, $allowedConditions, true)) {
+            $condition = 'good';
+        }
+        if (!in_array($status, $allowedStatuses, true)) {
+            $status = $status === 'service' ? 'maintenance' : 'available';
+        }
+        $specs = isset($item['specs']) ? (string)$item['specs'] : '';
+        $imageUrl = isset($item['image_layer']) ? (string)$item['image_layer'] : (isset($item['image_url']) ? (string)$item['image_url'] : null);
+        $sku = isset($item['sku']) ? (string)$item['sku'] : null;
+        $category = isset($item['category']) ? (string)$item['category'] : null;
+        $isConsumable = !empty($item['isConsumable']) ? 1 : (!empty($item['is_consumable']) ? 1 : 0);
+        $quantity = isset($item['quantity']) ? (int)$item['quantity'] : 1;
+        $unit = isset($item['unit']) ? (string)$item['unit'] : null;
+        $minStock = isset($item['minStock']) ? (int)$item['minStock'] : (isset($item['min_stock']) ? (int)$item['min_stock'] : 0);
+        $parameters = isset($item['parameters']) && is_array($item['parameters']) ? json_encode($item['parameters']) : json_encode([]);
+        $itemId = validateId($item['id'] ?? null);
+        $hasExistingItem = $itemId !== null && isset($existingItemIds[$itemId]);
+
+        if ($hasExistingItem) {
+            $updateItemStmt->bindValue(':id', $itemId, PDO::PARAM_INT);
+            $updateItemStmt->bindValue(':container_id', $containerId, PDO::PARAM_INT);
+            $updateItemStmt->bindValue(':name', $name, PDO::PARAM_STR);
+            $updateItemStmt->bindValue(':type', $type, PDO::PARAM_STR);
+            $updateItemStmt->bindValue(':condition', $condition, PDO::PARAM_STR);
+            $updateItemStmt->bindValue(':status', $status, PDO::PARAM_STR);
+            $updateItemStmt->bindValue(':specs', $specs, PDO::PARAM_STR);
+            if ($imageUrl === null || $imageUrl === '') {
+                $updateItemStmt->bindValue(':image_url', null, PDO::PARAM_NULL);
+            } else {
+                $updateItemStmt->bindValue(':image_url', $imageUrl, PDO::PARAM_STR);
+            }
+            if ($sku === null || $sku === '') {
+                $updateItemStmt->bindValue(':sku', null, PDO::PARAM_NULL);
+            } else {
+                $updateItemStmt->bindValue(':sku', $sku, PDO::PARAM_STR);
+            }
+            if ($category === null || $category === '') {
+                $updateItemStmt->bindValue(':category', null, PDO::PARAM_NULL);
+            } else {
+                $updateItemStmt->bindValue(':category', $category, PDO::PARAM_STR);
+            }
+            $updateItemStmt->bindValue(':is_consumable', $isConsumable, PDO::PARAM_INT);
+            $updateItemStmt->bindValue(':quantity', $quantity, PDO::PARAM_INT);
+            if ($unit === null || $unit === '') {
+                $updateItemStmt->bindValue(':unit', null, PDO::PARAM_NULL);
+            } else {
+                $updateItemStmt->bindValue(':unit', $unit, PDO::PARAM_STR);
+            }
+            $updateItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
+            $updateItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
+            $updateItemStmt->execute();
+            $newItemId = $itemId;
+        } else {
+            $insertItemStmt->bindValue(':container_id', $containerId, PDO::PARAM_INT);
+            $insertItemStmt->bindValue(':name', $name, PDO::PARAM_STR);
+            $insertItemStmt->bindValue(':type', $type, PDO::PARAM_STR);
+            $insertItemStmt->bindValue(':condition', $condition, PDO::PARAM_STR);
+            $insertItemStmt->bindValue(':status', $status, PDO::PARAM_STR);
+            $insertItemStmt->bindValue(':specs', $specs, PDO::PARAM_STR);
+            if ($imageUrl === null || $imageUrl === '') {
+                $insertItemStmt->bindValue(':image_url', null, PDO::PARAM_NULL);
+            } else {
+                $insertItemStmt->bindValue(':image_url', $imageUrl, PDO::PARAM_STR);
+            }
+            if ($sku === null || $sku === '') {
+                $insertItemStmt->bindValue(':sku', null, PDO::PARAM_NULL);
+            } else {
+                $insertItemStmt->bindValue(':sku', $sku, PDO::PARAM_STR);
+            }
+            if ($category === null || $category === '') {
+                $insertItemStmt->bindValue(':category', null, PDO::PARAM_NULL);
+            } else {
+                $insertItemStmt->bindValue(':category', $category, PDO::PARAM_STR);
+            }
+            $insertItemStmt->bindValue(':is_consumable', $isConsumable, PDO::PARAM_INT);
+            $insertItemStmt->bindValue(':quantity', $quantity, PDO::PARAM_INT);
+            if ($unit === null || $unit === '') {
+                $insertItemStmt->bindValue(':unit', null, PDO::PARAM_NULL);
+            } else {
+                $insertItemStmt->bindValue(':unit', $unit, PDO::PARAM_STR);
+            }
+            $insertItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
+            $insertItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
+            $insertItemStmt->execute();
+            $newItemId = (int)$db->lastInsertId();
+        }
+
+        $keptItemIds[] = $newItemId;
+
+        if (!array_key_exists('logs', $item) || !is_array($item['logs'])) {
+            $countLogsStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
+            $countLogsStmt->execute();
+            $existingLogCount = (int)$countLogsStmt->fetchColumn();
+            if ($existingLogCount === 0) {
+                $insertDefaultLog($newItemId);
+            }
+            continue;
+        }
+
+        $deleteLogsStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
+        $deleteLogsStmt->execute();
+
+        $insertedLogCount = 0;
+        foreach ($item['logs'] as $log) {
+            if (!is_array($log) || !isset($log['action'])) {
+                continue;
+            }
+
+            $action = (string)$log['action'];
+            $date = normalizeLogDate($log['date'] ?? null);
+            $detailsRaw = $log['details'] ?? '';
+            if (is_string($detailsRaw)) {
+                $trimmed = trim($detailsRaw);
+                if ($trimmed === '') {
+                    $details = json_encode('');
+                } else {
+                    json_decode($trimmed, true);
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        $details = $trimmed;
+                    } else {
+                        $details = json_encode($detailsRaw, JSON_UNESCAPED_UNICODE);
+                    }
+                }
+            } else {
+                $details = json_encode($detailsRaw, JSON_UNESCAPED_UNICODE);
+            }
+            if ($details === false || $details === null) {
+                $details = json_encode('');
+            }
+
+            $insertLogStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
+            $insertLogStmt->bindValue(':action', $action, PDO::PARAM_STR);
+            $insertLogStmt->bindValue(':date', $date, PDO::PARAM_STR);
+            $insertLogStmt->bindValue(':details', $details, PDO::PARAM_STR);
+            $insertLogStmt->execute();
+            $insertedLogCount++;
+        }
+
+        if ($insertedLogCount === 0) {
+            $insertDefaultLog($newItemId);
+        }
+    }
+
+    if (count($keptItemIds) > 0) {
+        $placeholders = implode(',', array_fill(0, count($keptItemIds), '?'));
+        $deleteRemovedStmt = $db->prepare("DELETE FROM items WHERE container_id = ? AND id NOT IN ($placeholders)");
+        $deleteRemovedStmt->execute(array_merge([$containerId], $keptItemIds));
     } else {
-        echo json_encode(["status" => "error", "message" => "Incomplete data."]);
+        $deleteAllStmt = $db->prepare("DELETE FROM items WHERE container_id = :container_id");
+        $deleteAllStmt->bindParam(':container_id', $containerId, PDO::PARAM_INT);
+        $deleteAllStmt->execute();
     }
 }
+
+if ($method == 'GET') {
+    respond(200, normalizeRoomRows($db));
+}
+
+if ($method == 'POST') {
+    if ($entity === 'room') {
+        if (!isset($payload['name'], $payload['type'], $payload['category'])) {
+            respond(400, ["status" => "error", "message" => "Incomplete room payload."]);
+        }
+
+        $manualId = validateId($payload['id'] ?? null);
+        $name = trim((string)$payload['name']);
+        $type = (string)$payload['type'];
+        $category = (string)$payload['category'];
+        $customType = isset($payload['customType']) ? (string)$payload['customType'] : (isset($payload['custom_type']) ? (string)$payload['custom_type'] : null);
+        $capacity = isset($payload['capacity']) ? (int)$payload['capacity'] : 0;
+
+        if ($manualId !== null) {
+            $stmt = $db->prepare(
+                "INSERT INTO rooms (id, name, type, category, custom_type, capacity)
+                 VALUES (:id, :name, :type, :category, :custom_type, :capacity)"
+            );
+            $stmt->bindParam(':id', $manualId, PDO::PARAM_INT);
+            $stmt->bindParam(':name', $name, PDO::PARAM_STR);
+            $stmt->bindParam(':type', $type, PDO::PARAM_STR);
+            $stmt->bindParam(':category', $category, PDO::PARAM_STR);
+            $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
+            $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
+            $stmt->execute();
+            respond(201, ["status" => "success", "id" => (string)$manualId, "message" => "Room created."]);
+        }
+
+        $stmt = $db->prepare(
+            "INSERT INTO rooms (name, type, category, custom_type, capacity)
+             VALUES (:name, :type, :category, :custom_type, :capacity)"
+        );
+        $stmt->bindParam(':name', $name, PDO::PARAM_STR);
+        $stmt->bindParam(':type', $type, PDO::PARAM_STR);
+        $stmt->bindParam(':category', $category, PDO::PARAM_STR);
+        $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
+        $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
+        $stmt->execute();
+
+        respond(201, ["status" => "success", "id" => (string)$db->lastInsertId(), "message" => "Room created."]);
+    }
+
+    if ($entity === 'container') {
+        $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
+        if ($roomId === null || !isset($payload['name'], $payload['type'])) {
+            respond(400, ["status" => "error", "message" => "Incomplete container payload."]);
+        }
+
+        $name = trim((string)$payload['name']);
+        $type = (string)$payload['type'];
+        $status = isset($payload['status']) ? (string)$payload['status'] : 'good';
+        if (!in_array($status, ['good', 'warning', 'error'], true)) {
+            $status = 'good';
+        }
+        $position = $payload['position'] ?? [];
+        $positionX = isset($position['x']) ? (int)$position['x'] : 0;
+        $positionY = isset($position['y']) ? (int)$position['y'] : 0;
+
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare(
+                "INSERT INTO containers (room_id, name, type, status, position_x, position_y)
+                 VALUES (:room_id, :name, :type, :status, :position_x, :position_y)"
+            );
+            $stmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+            $stmt->bindParam(':name', $name, PDO::PARAM_STR);
+            $stmt->bindParam(':type', $type, PDO::PARAM_STR);
+            $stmt->bindParam(':status', $status, PDO::PARAM_STR);
+            $stmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
+            $stmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
+            $stmt->execute();
+
+            $containerId = (int)$db->lastInsertId();
+            if (isset($payload['items']) && is_array($payload['items'])) {
+                syncContainerItems($db, $containerId, $payload['items']);
+            }
+
+            $db->commit();
+            respond(201, ["status" => "success", "id" => (string)$containerId, "message" => "Container created."]);
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            respond(500, ["status" => "error", "message" => "Failed to create container.", "debug" => $e->getMessage()]);
+        }
+    }
+
+    if ($entity === 'container-bulk') {
+        $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
+        $containers = $payload['containers'] ?? null;
+        if ($roomId === null || !is_array($containers)) {
+            respond(400, ["status" => "error", "message" => "Invalid bulk container payload."]);
+        }
+
+        $insertedIds = [];
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare(
+                "INSERT INTO containers (room_id, name, type, status, position_x, position_y)
+                 VALUES (:room_id, :name, :type, :status, :position_x, :position_y)"
+            );
+
+            foreach ($containers as $container) {
+                if (!is_array($container) || !isset($container['name'], $container['type'])) {
+                    continue;
+                }
+
+                $name = trim((string)$container['name']);
+                $type = (string)$container['type'];
+                $status = isset($container['status']) ? (string)$container['status'] : 'good';
+                if (!in_array($status, ['good', 'warning', 'error'], true)) {
+                    $status = 'good';
+                }
+                $position = $container['position'] ?? [];
+                $positionX = isset($position['x']) ? (int)$position['x'] : 0;
+                $positionY = isset($position['y']) ? (int)$position['y'] : 0;
+
+                $stmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+                $stmt->bindParam(':name', $name, PDO::PARAM_STR);
+                $stmt->bindParam(':type', $type, PDO::PARAM_STR);
+                $stmt->bindParam(':status', $status, PDO::PARAM_STR);
+                $stmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
+                $stmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
+                $stmt->execute();
+
+                $containerId = (int)$db->lastInsertId();
+                $insertedIds[] = (string)$containerId;
+
+                if (isset($container['items']) && is_array($container['items'])) {
+                    syncContainerItems($db, $containerId, $container['items']);
+                }
+            }
+
+            $db->commit();
+            respond(201, ["status" => "success", "ids" => $insertedIds, "message" => "Containers created."]);
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            respond(500, ["status" => "error", "message" => "Failed to create containers.", "debug" => $e->getMessage()]);
+        }
+    }
+
+    if ($entity === 'container-reorder') {
+        $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
+        $containerIds = $payload['containerIds'] ?? null;
+        if ($roomId === null || !is_array($containerIds)) {
+            respond(400, ["status" => "error", "message" => "Invalid reorder payload."]);
+        }
+
+        $updateStmt = $db->prepare(
+            "UPDATE containers
+             SET position_x = :position_x, position_y = :position_y
+             WHERE id = :id AND room_id = :room_id"
+        );
+
+        $db->beginTransaction();
+        try {
+            foreach ($containerIds as $index => $containerIdRaw) {
+                $containerId = validateId($containerIdRaw);
+                if ($containerId === null) {
+                    continue;
+                }
+
+                $positionX = $index % 4;
+                $positionY = (int)floor($index / 4);
+                $updateStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
+                $updateStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
+                $updateStmt->bindParam(':id', $containerId, PDO::PARAM_INT);
+                $updateStmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+                $updateStmt->execute();
+            }
+
+            $db->commit();
+            respond(200, ["status" => "success", "message" => "Container order updated."]);
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            respond(500, ["status" => "error", "message" => "Failed to reorder containers.", "debug" => $e->getMessage()]);
+        }
+    }
+
+    respond(400, ["status" => "error", "message" => "Unsupported entity for POST."]);
+}
+
+if ($method == 'PUT') {
+    if ($entity === 'room') {
+        $roomId = validateId($payload['id'] ?? null);
+        if ($roomId === null || !isset($payload['name'], $payload['type'], $payload['category'])) {
+            respond(400, ["status" => "error", "message" => "Incomplete room update payload."]);
+        }
+
+        $name = trim((string)$payload['name']);
+        $type = (string)$payload['type'];
+        $category = (string)$payload['category'];
+        $customType = isset($payload['customType']) ? (string)$payload['customType'] : (isset($payload['custom_type']) ? (string)$payload['custom_type'] : null);
+        $capacity = isset($payload['capacity']) ? (int)$payload['capacity'] : 0;
+
+        $stmt = $db->prepare(
+            "UPDATE rooms
+             SET name = :name, type = :type, category = :category, custom_type = :custom_type, capacity = :capacity
+             WHERE id = :id"
+        );
+        $stmt->bindParam(':id', $roomId, PDO::PARAM_INT);
+        $stmt->bindParam(':name', $name, PDO::PARAM_STR);
+        $stmt->bindParam(':type', $type, PDO::PARAM_STR);
+        $stmt->bindParam(':category', $category, PDO::PARAM_STR);
+        $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
+        $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
+        $stmt->execute();
+
+        respond(200, ["status" => "success", "message" => "Room updated."]);
+    }
+
+    if ($entity === 'container') {
+        $containerId = validateId($payload['id'] ?? null);
+        $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
+
+        if ($containerId === null || $roomId === null || !isset($payload['name'], $payload['type'])) {
+            respond(400, ["status" => "error", "message" => "Incomplete container update payload."]);
+        }
+
+        $name = trim((string)$payload['name']);
+        $type = (string)$payload['type'];
+        $status = isset($payload['status']) ? (string)$payload['status'] : 'good';
+        if (!in_array($status, ['good', 'warning', 'error'], true)) {
+            $status = 'good';
+        }
+        $position = $payload['position'] ?? [];
+        $positionX = isset($position['x']) ? (int)$position['x'] : 0;
+        $positionY = isset($position['y']) ? (int)$position['y'] : 0;
+
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare(
+                "UPDATE containers
+                 SET name = :name, type = :type, status = :status, position_x = :position_x, position_y = :position_y
+                 WHERE id = :id AND room_id = :room_id"
+            );
+            $stmt->bindParam(':id', $containerId, PDO::PARAM_INT);
+            $stmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+            $stmt->bindParam(':name', $name, PDO::PARAM_STR);
+            $stmt->bindParam(':type', $type, PDO::PARAM_STR);
+            $stmt->bindParam(':status', $status, PDO::PARAM_STR);
+            $stmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
+            $stmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
+            $stmt->execute();
+
+            if (isset($payload['items']) && is_array($payload['items'])) {
+                syncContainerItems($db, $containerId, $payload['items']);
+            }
+
+            $db->commit();
+            respond(200, ["status" => "success", "message" => "Container updated."]);
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            respond(500, ["status" => "error", "message" => "Failed to update container.", "debug" => $e->getMessage()]);
+        }
+    }
+
+    if ($entity === 'room-state') {
+        $roomId = validateId($payload['id'] ?? null);
+        if ($roomId === null) {
+            respond(400, ["status" => "error", "message" => "Invalid room id for room-state update."]);
+        }
+
+        $name = isset($payload['name']) ? trim((string)$payload['name']) : null;
+        $type = isset($payload['type']) ? (string)$payload['type'] : null;
+        $category = isset($payload['category']) ? (string)$payload['category'] : null;
+        $customType = isset($payload['customType']) ? (string)$payload['customType'] : (isset($payload['custom_type']) ? (string)$payload['custom_type'] : null);
+        $capacity = isset($payload['capacity']) ? (int)$payload['capacity'] : null;
+        $containers = isset($payload['containers']) && is_array($payload['containers']) ? $payload['containers'] : [];
+
+        $db->beginTransaction();
+        try {
+            if ($name !== null && $name !== '') {
+                $updateRoomStmt = $db->prepare(
+                    "UPDATE rooms
+                     SET name = :name, type = :type, category = :category, custom_type = :custom_type, capacity = :capacity
+                     WHERE id = :id"
+                );
+                $safeType = $type ?? 'other';
+                $safeCategory = $category ?? 'lab';
+                $safeCapacity = $capacity ?? 0;
+                $updateRoomStmt->bindParam(':id', $roomId, PDO::PARAM_INT);
+                $updateRoomStmt->bindParam(':name', $name, PDO::PARAM_STR);
+                $updateRoomStmt->bindParam(':type', $safeType, PDO::PARAM_STR);
+                $updateRoomStmt->bindParam(':category', $safeCategory, PDO::PARAM_STR);
+                $updateRoomStmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
+                $updateRoomStmt->bindParam(':capacity', $safeCapacity, PDO::PARAM_INT);
+                $updateRoomStmt->execute();
+            }
+
+            $keptContainerIds = [];
+
+            $findContainerStmt = $db->prepare("SELECT id FROM containers WHERE id = :id AND room_id = :room_id LIMIT 1");
+            $updateContainerStmt = $db->prepare(
+                "UPDATE containers
+                 SET name = :name, type = :type, status = :status, position_x = :position_x, position_y = :position_y
+                 WHERE id = :id AND room_id = :room_id"
+            );
+            $insertContainerStmt = $db->prepare(
+                "INSERT INTO containers (room_id, name, type, status, position_x, position_y)
+                 VALUES (:room_id, :name, :type, :status, :position_x, :position_y)"
+            );
+
+            foreach ($containers as $index => $container) {
+                if (!is_array($container)) {
+                    continue;
+                }
+
+                $containerId = validateId($container['id'] ?? null);
+                $containerName = trim((string)($container['name'] ?? ("Container " . ($index + 1))));
+                $containerType = (string)($container['type'] ?? 'table');
+                $containerStatus = (string)($container['status'] ?? 'good');
+                if (!in_array($containerStatus, ['good', 'warning', 'error'], true)) {
+                    $containerStatus = 'good';
+                }
+                $position = isset($container['position']) && is_array($container['position']) ? $container['position'] : [];
+                $positionX = isset($position['x']) ? (int)$position['x'] : ($index % 4);
+                $positionY = isset($position['y']) ? (int)$position['y'] : (int)floor($index / 4);
+                $items = isset($container['items']) && is_array($container['items']) ? $container['items'] : [];
+
+                if ($containerId !== null) {
+                    $findContainerStmt->bindParam(':id', $containerId, PDO::PARAM_INT);
+                    $findContainerStmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+                    $findContainerStmt->execute();
+                    $exists = $findContainerStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($exists) {
+                        $updateContainerStmt->bindParam(':id', $containerId, PDO::PARAM_INT);
+                        $updateContainerStmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+                        $updateContainerStmt->bindParam(':name', $containerName, PDO::PARAM_STR);
+                        $updateContainerStmt->bindParam(':type', $containerType, PDO::PARAM_STR);
+                        $updateContainerStmt->bindParam(':status', $containerStatus, PDO::PARAM_STR);
+                        $updateContainerStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
+                        $updateContainerStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
+                        $updateContainerStmt->execute();
+                        syncContainerItems($db, $containerId, $items);
+                        $keptContainerIds[] = $containerId;
+                        continue;
+                    }
+                }
+
+                $insertContainerStmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+                $insertContainerStmt->bindParam(':name', $containerName, PDO::PARAM_STR);
+                $insertContainerStmt->bindParam(':type', $containerType, PDO::PARAM_STR);
+                $insertContainerStmt->bindParam(':status', $containerStatus, PDO::PARAM_STR);
+                $insertContainerStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
+                $insertContainerStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
+                $insertContainerStmt->execute();
+
+                $newContainerId = (int)$db->lastInsertId();
+                syncContainerItems($db, $newContainerId, $items);
+                $keptContainerIds[] = $newContainerId;
+            }
+
+            if (count($keptContainerIds) > 0) {
+                $placeholders = implode(',', array_fill(0, count($keptContainerIds), '?'));
+                $deleteRemovedStmt = $db->prepare("DELETE FROM containers WHERE room_id = ? AND id NOT IN ($placeholders)");
+                $params = array_merge([$roomId], $keptContainerIds);
+                $deleteRemovedStmt->execute($params);
+            } else {
+                $deleteAllStmt = $db->prepare("DELETE FROM containers WHERE room_id = :room_id");
+                $deleteAllStmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+                $deleteAllStmt->execute();
+            }
+
+            $db->commit();
+            respond(200, ["status" => "success", "message" => "Room state synchronized."]);
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            respond(500, ["status" => "error", "message" => "Failed to synchronize room state.", "debug" => $e->getMessage()]);
+        }
+    }
+
+    respond(400, ["status" => "error", "message" => "Unsupported entity for PUT."]);
+}
+
+if ($method == 'DELETE') {
+    if ($entity === 'room') {
+        $roomId = validateId($payload['id'] ?? $_GET['id'] ?? null);
+        if ($roomId === null) {
+            respond(400, ["status" => "error", "message" => "Invalid room id."]);
+        }
+
+        $stmt = $db->prepare("DELETE FROM rooms WHERE id = :id");
+        $stmt->bindParam(':id', $roomId, PDO::PARAM_INT);
+        $stmt->execute();
+
+        respond(200, ["status" => "success", "message" => "Room deleted."]);
+    }
+
+    if ($entity === 'container') {
+        $containerId = validateId($payload['id'] ?? $_GET['id'] ?? null);
+        $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? $_GET['room_id'] ?? null);
+        if ($containerId === null || $roomId === null) {
+            respond(400, ["status" => "error", "message" => "Invalid container id or room id."]);
+        }
+
+        $stmt = $db->prepare("DELETE FROM containers WHERE id = :id AND room_id = :room_id");
+        $stmt->bindParam(':id', $containerId, PDO::PARAM_INT);
+        $stmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
+        $stmt->execute();
+
+        respond(200, ["status" => "success", "message" => "Container deleted."]);
+    }
+}
+
+respond(405, ["status" => "error", "message" => "Method not allowed."]);
 ?>

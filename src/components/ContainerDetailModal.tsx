@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, Box, Activity, Zap, Scissors, Server, Printer, AlertTriangle, RefreshCw, CheckSquare, Square } from 'lucide-react';
-import type { Container, Item, ServiceRequest, ComponentCondition } from '../types';
+import type { Container, Item, ItemLog, ServiceRequest, ComponentCondition } from '../types';
 import { useServiceRequests } from '../context/ServiceRequestContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
@@ -10,14 +10,15 @@ import { useItemForm } from '../hooks/useItemForm';
 
 interface ContainerDetailModalProps {
     container: Container;
+    roomId?: string;
     initialItemId?: string; // Optional deep link
     onClose: () => void;
     onUpdate: (updatedContainer: Container) => void;
 }
 
 const getItemIcon = (type: string, name: string) => {
-    const t = type.toLowerCase();
-    const n = name.toLowerCase();
+    const t = typeof type === 'string' ? type.toLowerCase() : '';
+    const n = typeof name === 'string' ? name.toLowerCase() : '';
     if (t.includes('microscope') || n.includes('microscope')) return Microscope;
     if (t.includes('optical') || n.includes('optical')) return Activity;
     if (t.includes('circuit') || n.includes('circuit')) return Zap;
@@ -35,7 +36,37 @@ const Microscope = ({ size }: { size: number }) => (
     </svg>
 );
 
-const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: ContainerDetailModalProps) => {
+const createItemLog = (action: string, details: string): ItemLog => ({
+    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    date: new Date().toISOString(),
+    action,
+    details
+});
+
+const ensureItemLogs = (logs: unknown): ItemLog[] => {
+    if (Array.isArray(logs) && logs.length > 0) {
+        const validLogs = logs.filter((log): log is ItemLog => {
+            if (typeof log !== 'object' || log === null) return false;
+            const entry = log as Partial<ItemLog>;
+            return typeof entry.action === 'string' && typeof entry.date === 'string';
+        });
+        if (validLogs.length > 0) {
+            return validLogs;
+        }
+    }
+    return [createItemLog('INITIALIZED', 'Log awal item dibuat otomatis.')];
+};
+
+const formatLogDetails = (details: unknown): string => {
+    if (typeof details === 'string') return details;
+    try {
+        return JSON.stringify(details);
+    } catch {
+        return String(details ?? '');
+    }
+};
+
+const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpdate }: ContainerDetailModalProps) => {
     const { addRequest, requests } = useServiceRequests();
     const { user } = useAuth();
     const { t } = useLanguage();
@@ -47,6 +78,13 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
     const { formData, isEditing, editingId, updateField, resetForm, loadItem, generateSku, parameterActions } = useItemForm();
 
     // Initial Deep Link Logic
+    useEffect(() => {
+        setItems((container.items || []).map((item) => ({
+            ...item,
+            logs: ensureItemLogs(item.logs)
+        })));
+    }, [container.items]);
+
     useEffect(() => {
         if (initialItemId) {
             const item = items.find(i => i.id === initialItemId);
@@ -79,6 +117,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
         if (!formData.name) return;
 
         let updatedItems = [...items];
+        const now = new Date().toISOString();
 
         const commonData = {
             name: formData.name,
@@ -94,11 +133,22 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
 
         if (isEditing && editingId) {
             // Update existing
-            updatedItems = items.map(i => i.id === editingId ? {
-                ...i,
-                ...commonData,
-                condition: formData.condition // Update condition as well
-            } : i);
+            updatedItems = items.map(i => {
+                if (i.id !== editingId) return i;
+                const previousLogs = ensureItemLogs(i.logs);
+                const log = {
+                    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    date: now,
+                    action: 'UPDATED',
+                    details: `Item ${formData.name} diperbarui.`
+                };
+                return {
+                    ...i,
+                    ...commonData,
+                    condition: formData.condition, // Update condition as well
+                    logs: [log, ...previousLogs]
+                };
+            });
         } else {
             // Add new
             const newItem: Item = {
@@ -107,7 +157,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
                 status: 'available', // Default availability
                 condition: formData.condition, // Initial condition
                 specs: formData.parameters.map(p => `${p.label}: ${p.value}`).join(', ') || 'Standard', // Fallback for legacy specs
-                logs: []
+                logs: [createItemLog('CREATED', `Item ${formData.name} ditambahkan.`)]
             };
             updatedItems.push(newItem);
         }
@@ -133,36 +183,51 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
         setIsReportOpen(true);
     };
 
-    const confirmReport = () => {
+    const confirmReport = async () => {
         if (!isEditing || !editingId || !reportReason.trim()) return;
 
-        // Find the original item for some context if needed, or use formData
-        // Using formData is safer for current state
-        addRequest({
-            componentId: editingId,
-            componentName: formData.name,
-            stationId: container.id,
-            stationName: container.name,
-            roomId: 'unknown',
-            description: reportReason,
-            requesterName: user?.name || 'Unknown User',
-            componentSku: formData.sku,
-            componentCategory: formData.category,
-        });
+        try {
+            // Find the original item for some context if needed, or use formData
+            // Using formData is safer for current state
+            await addRequest({
+                componentId: editingId,
+                componentName: formData.name,
+                stationId: container.id,
+                stationName: container.name,
+                roomId: roomId ?? 'unknown',
+                description: reportReason,
+                requesterName: user?.name || 'Unknown User',
+                componentSku: formData.sku,
+                componentCategory: formData.category,
+            });
 
-        // Optimistically update condition to 'service'
-        const updatedItems = items.map(i => i.id === editingId ? { ...i, condition: 'service' as ComponentCondition } : i);
-        setItems(updatedItems);
-        onUpdate({ ...container, items: updatedItems });
+            // Optimistically update condition + status and add log
+            const updatedItems = items.map(i => {
+                if (i.id !== editingId) return i;
+                const logs = ensureItemLogs(i.logs);
+                return {
+                    ...i,
+                    condition: 'service' as ComponentCondition,
+                    status: 'maintenance' as Item['status'],
+                    logs: [createItemLog('REPORTED', `Issue reported: ${reportReason}`), ...logs]
+                };
+            });
+            setItems(updatedItems);
+            onUpdate({ ...container, items: updatedItems });
 
-        showToast(t('report_success'), 'success');
-        setIsReportOpen(false);
-        setIsFormOpen(false); // Close the edit form too
+            showToast(t('report_success'), 'success');
+            setIsReportOpen(false);
+            setIsFormOpen(false); // Close the edit form too
+        } catch (error) {
+            console.error('Failed to submit service request:', error);
+            showToast('Gagal mengirim laporan ke backend.', 'error');
+        }
     };
 
 
 
     const activeRequest = editingId ? requests.find((r: ServiceRequest) => r.componentId === editingId && r.status !== 'completed' && r.status !== 'denied') : undefined;
+    const selectedItemLogs = editingId ? (items.find((item) => item.id === editingId)?.logs ?? []) : [];
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -393,6 +458,28 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
                                             </div>
                                         </div>
 
+                                        {/* SECTION 4: ITEM LOGS */}
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t('component_history')}</h5>
+                                            {isEditing ? (
+                                                <div className="max-h-36 overflow-y-auto space-y-2 pr-1">
+                                                    {selectedItemLogs.map((log) => (
+                                                        <div key={log.id} className="border border-slate-200 rounded-lg bg-white p-2.5">
+                                                            <div className="text-[11px] text-slate-500">
+                                                                {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
+                                                            </div>
+                                                            <div className="text-xs font-semibold text-slate-800 mt-1">{log.action}</div>
+                                                            <div className="text-xs text-slate-600 mt-1">{formatLogDetails(log.details)}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-500">
+                                                    Log awal akan otomatis dibuat saat item disimpan.
+                                                </p>
+                                            )}
+                                        </div>
+
                                         {/* Status Selection (Preserved) */}
                                         <div className="pt-4 border-t border-gray-100 opacity-70">
                                             <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
@@ -462,7 +549,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
                                     />
                                     <div className="flex gap-3">
                                         <button onClick={() => setIsReportOpen(false)} className="flex-1 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-xl">{t('btn_cancel')}</button>
-                                        <button onClick={confirmReport} className="flex-1 py-2 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 shadow-lg shadow-amber-200">{t('submit_report')}</button>
+                                        <button onClick={() => { void confirmReport(); }} className="flex-1 py-2 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 shadow-lg shadow-amber-200">{t('submit_report')}</button>
                                     </div>
                                 </div>
                             </motion.div>
@@ -502,7 +589,7 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, on
             )}
 
             <div className="w-14 h-14 mb-4 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors">
-                {Icon({ size: 28 })}
+                <Icon size={28} />
             </div>
 
             <h4 className="font-bold text-gray-900 text-base mb-1 text-center leading-tight line-clamp-2">{item.name}</h4>

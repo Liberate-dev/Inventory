@@ -1,127 +1,243 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '../types';
 
 interface AuthContextType {
     user: User | null;
     isAuthenticated: boolean;
     allUsers: User[];
-    login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
     logout: () => void;
-    registerUser: (newUser: Omit<User, 'id'>) => Promise<void>;
-    updateUser: (id: string, data: Partial<User>) => void;
-    deleteUser: (id: string) => void;
-    updateProfile: (data: Partial<User>) => void;
+    registerUser: (newUser: Omit<User, 'id'>, password: string) => Promise<void>;
+    updateUser: (id: string, data: Partial<User>, password?: string) => Promise<void>;
+    deleteUser: (id: string) => Promise<void>;
+    updateProfile: (data: Partial<User>) => Promise<void>;
+    refreshUsers: () => Promise<void>;
 }
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const LOGIN_ENDPOINT = `${API_BASE_URL}/auth/login.php`;
+const USERS_ENDPOINT = `${API_BASE_URL}/users/users.php`;
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Initial Mock Users
-const INITIAL_USERS: User[] = [
-    { id: 'u1', username: 'admin', name: 'Super Admin', email: 'admin@lab.com', phone: '081234567890', role: 'admin', avatar: 'https://ui-avatars.com/api/?name=Super+Admin&background=dc2626&color=fff' },
-    { id: 'u2', username: 'admin1_kom', name: 'Admin 1 (Komputer)', email: 'admin1.kom@lab.com', phone: '081234567891', role: 'kepala_lab', labScope: 'computer', avatar: 'https://ui-avatars.com/api/?name=Admin+1&background=4f46e5&color=fff' },
-    { id: 'u3', username: 'admin1_bio', name: 'Admin 1 (Biologi)', email: 'admin1.bio@lab.com', phone: '081234567892', role: 'kepala_lab', labScope: 'biology', avatar: 'https://ui-avatars.com/api/?name=Admin+1&background=16a34a&color=fff' },
-    { id: 'u4', username: 'admin1_fis', name: 'Admin 1 (Fisika)', email: 'admin1.fis@lab.com', phone: '081234567893', role: 'kepala_lab', labScope: 'physics', avatar: 'https://ui-avatars.com/api/?name=Admin+1&background=ca8a04&color=fff' },
-    { id: 'u5', username: 'admin2', name: 'Admin 2', email: 'admin2@lab.com', phone: '081234567894', role: 'guru', avatar: 'https://ui-avatars.com/api/?name=Admin+2&background=0891b2&color=fff' },
-    { id: 'u6', username: 'kepsek', name: 'Kepala Sekolah', email: 'kepsek@lab.com', phone: '081234567895', role: 'kepala_sekolah', avatar: 'https://ui-avatars.com/api/?name=Kepsek&background=475569&color=fff' },
-];
+const withAvatarFallback = (user: User): User => ({
+    ...user,
+    avatar: user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.username || 'User')}&background=1e40af&color=fff`
+});
+
+const normalizeUser = (raw: Partial<User> & Record<string, unknown>): User => {
+    const id = String(raw.id ?? '');
+    const username = String(raw.username ?? '');
+    const name = String(raw.name ?? '');
+    const email = String(raw.email ?? '');
+    const role = (raw.role ?? 'guru') as User['role'];
+
+    return withAvatarFallback({
+        id,
+        username,
+        name,
+        email,
+        role,
+        phone: typeof raw.phone === 'string' ? raw.phone : undefined,
+        avatar: typeof raw.avatar === 'string' ? raw.avatar : undefined,
+        labScope: (raw.labScope as User['labScope']) ?? undefined
+    });
+};
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-    // Current Session User
     const [user, setUser] = useState<User | null>(() => {
         const saved = localStorage.getItem('auth_user');
-        return saved ? JSON.parse(saved) : null;
-    });
+        if (!saved) return null;
 
-    // Mock Database of All Users
-    const [allUsers, setAllUsers] = useState<User[]>(() => {
-        const savedDb = localStorage.getItem('auth_users_db');
-        if (savedDb) {
-            const parsed = JSON.parse(savedDb);
-            // Simple check: if the first user doesn't have a username, the DB is stale. Reset it.
-            if (parsed.length > 0 && !parsed[0].username) {
-                return INITIAL_USERS;
-            }
-            return parsed;
+        try {
+            return withAvatarFallback(JSON.parse(saved) as User);
+        } catch {
+            localStorage.removeItem('auth_user');
+            return null;
         }
-        return INITIAL_USERS;
     });
 
-    // Persistence
-    useEffect(() => {
-        if (user) localStorage.setItem('auth_user', JSON.stringify(user));
-        else localStorage.removeItem('auth_user');
-    }, [user]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
+
+    const fetchUsers = async () => {
+        const response = await fetch(USERS_ENDPOINT);
+        const payload = await response.json().catch(() => ({})) as { status?: string; users?: unknown; message?: string };
+
+        if (!response.ok || payload.status === 'error') {
+            throw new Error(typeof payload.message === 'string' ? payload.message : 'Gagal memuat daftar user.');
+        }
+
+        const usersRaw = Array.isArray(payload.users) ? payload.users : [];
+        const users = usersRaw
+            .map((value) => {
+                if (typeof value !== 'object' || value === null) return null;
+                return normalizeUser(value as Partial<User> & Record<string, unknown>);
+            })
+            .filter((value): value is User => value !== null);
+
+        setAllUsers(users);
+
+        // keep current session in sync with backend version
+        if (user) {
+            const refreshedCurrent = users.find((u) => u.id === user.id);
+            if (refreshedCurrent) {
+                setUser(refreshedCurrent);
+            }
+        }
+    };
 
     useEffect(() => {
-        localStorage.setItem('auth_users_db', JSON.stringify(allUsers));
-    }, [allUsers]);
+        void fetchUsers().catch((error) => {
+            console.error('Failed to fetch users:', error);
+        });
+    }, []);
+
+    useEffect(() => {
+        if (user) {
+            localStorage.setItem('auth_user', JSON.stringify(user));
+        } else {
+            localStorage.removeItem('auth_user');
+        }
+    }, [user]);
 
     const login = async (identifier: string, password: string) => {
         try {
-            const response = await fetch('http://localhost:8000/api/auth/login.php', {
+            const response = await fetch(LOGIN_ENDPOINT, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ username: identifier, password }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: identifier, password })
             });
 
-            const data = await response.json();
+            const data = await response.json().catch(() => ({})) as {
+                success?: boolean;
+                message?: string;
+                token?: string;
+                user?: Partial<User> & Record<string, unknown>;
+            };
 
-            if (data.success) {
-                setUser(data.user);
-                localStorage.setItem('auth_token', data.token); // Store token
-                return { success: true };
-            } else {
-                return { success: false, error: data.message };
+            if (!response.ok || !data.success || !data.user) {
+                return { success: false, error: data.message || 'Login gagal.' };
             }
+
+            const loggedInUser = normalizeUser(data.user);
+            setUser(loggedInUser);
+
+            if (typeof data.token === 'string' && data.token) {
+                localStorage.setItem('auth_token', data.token);
+            }
+
+            await fetchUsers().catch((error) => {
+                console.error('Failed to refresh users after login:', error);
+            });
+            return { success: true };
         } catch (error) {
-            console.error("Login error:", error);
+            console.error('Login error:', error);
             return {
                 success: false,
-                error: "Gagal terhubung ke server. Pastikan backend (PHP) berjalan."
+                error: 'Gagal terhubung ke server. Pastikan backend (PHP) berjalan.'
             };
         }
     };
 
-    const logout = () => setUser(null);
+    const logout = () => {
+        setUser(null);
+        localStorage.removeItem('auth_token');
+    };
 
-    const registerUser = async (newUser: Omit<User, 'id'>) => {
-        const id = `u-${Date.now()}`;
-        const userToAdd: User = {
-            ...newUser,
+    const registerUser = async (newUser: Omit<User, 'id'>, password: string) => {
+        const response = await fetch(USERS_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: newUser.username,
+                name: newUser.name,
+                email: newUser.email,
+                phone: newUser.phone ?? null,
+                role: newUser.role,
+                labScope: newUser.labScope ?? null,
+                avatar: newUser.avatar ?? null,
+                password
+            })
+        });
+
+        const payload = await response.json().catch(() => ({})) as { status?: string; message?: string };
+        if (!response.ok || payload.status === 'error') {
+            throw new Error(payload.message || 'Gagal menambah user.');
+        }
+
+        await fetchUsers();
+    };
+
+    const updateUser = async (id: string, data: Partial<User>, password?: string) => {
+        const requestBody: Record<string, unknown> = {
             id,
-            avatar: newUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(newUser.name)}&background=random`
+            ...data
         };
-        setAllUsers((prev: User[]) => [...prev, userToAdd]);
+        if (password && password.trim().length > 0) {
+            requestBody.password = password;
+        }
+
+        const response = await fetch(USERS_ENDPOINT, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        const payload = await response.json().catch(() => ({})) as { status?: string; message?: string; user?: Partial<User> & Record<string, unknown> };
+        if (!response.ok || payload.status === 'error') {
+            throw new Error(payload.message || 'Gagal memperbarui user.');
+        }
+
+        if (payload.user) {
+            const updatedUser = normalizeUser(payload.user);
+            setAllUsers((prev) => prev.map((existing) => (existing.id === updatedUser.id ? updatedUser : existing)));
+            if (user?.id === updatedUser.id) {
+                setUser(updatedUser);
+            }
+            return;
+        }
+
+        await fetchUsers();
     };
 
-    const updateUser = (id: string, data: Partial<User>) => {
-        setAllUsers((prev: User[]) => prev.map(u => u.id === id ? { ...u, ...data } : u));
-        // Update current session if it's the same user
-        if (user?.id === id) setUser(prev => prev ? { ...prev, ...data } : null);
+    const deleteUser = async (id: string) => {
+        const response = await fetch(USERS_ENDPOINT, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+
+        const payload = await response.json().catch(() => ({})) as { status?: string; message?: string };
+        if (!response.ok || payload.status === 'error') {
+            throw new Error(payload.message || 'Gagal menghapus user.');
+        }
+
+        setAllUsers((prev) => prev.filter((existing) => existing.id !== id));
+        if (user?.id === id) {
+            logout();
+        }
     };
 
-    const deleteUser = (id: string) => {
-        setAllUsers((prev: User[]) => prev.filter(u => u.id !== id));
-    };
-
-    const updateProfile = (data: Partial<User>) => {
-        if (user) updateUser(user.id, data);
+    const updateProfile = async (data: Partial<User>) => {
+        if (!user) return;
+        await updateUser(user.id, data);
     };
 
     return (
-        <AuthContext.Provider value={{
-            user,
-            isAuthenticated: !!user,
-            allUsers,
-            login,
-            logout,
-            registerUser,
-            updateUser,
-            deleteUser,
-            updateProfile
-        }}>
+        <AuthContext.Provider
+            value={{
+                user,
+                isAuthenticated: !!user,
+                allUsers,
+                login,
+                logout,
+                registerUser,
+                updateUser,
+                deleteUser,
+                updateProfile,
+                refreshUsers: fetchUsers
+            }}
+        >
             {children}
         </AuthContext.Provider>
     );

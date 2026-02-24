@@ -9,12 +9,6 @@ import StationDetailModal from '../components/StationDetailModal';
 import ContainerDetailModal from '../components/ContainerDetailModal';
 import type { Container } from '../types';
 
-const getRoomType = (id: string) => {
-    if (id?.includes('phy')) return 'physics';
-    if (id?.includes('bio')) return 'biology';
-    return 'computer';
-};
-
 // Isometric Container Card
 const ContainerCard = ({ container }: { container: Container }) => {
     const getIcon = () => {
@@ -100,12 +94,12 @@ import { useInventory } from '../context/InventoryContext';
 const RoomDetail = () => {
     const { roomId } = useParams();
     const navigate = useNavigate();
-    const { getRoom, updateRoom, updateContainer } = useInventory();
+    const { getRoom, addContainers, updateContainer, deleteContainer, reorderContainers } = useInventory();
     const room = getRoom(roomId || '');
 
     const [scale, setScale] = useState(1);
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
-    const roomType = getRoomType(roomId || '');
+    const isComputerLab = room?.type === 'computer';
 
     // Get containers from global state
     const containers = room?.containers || [];
@@ -113,12 +107,13 @@ const RoomDetail = () => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newContainerType, setNewContainerType] = useState<'table' | 'cupboard' | 'shelf'>('table');
     const [newContainerQuantity, setNewContainerQuantity] = useState(1);
+    const getErrorMessage = (error: unknown, fallback: string) =>
+        error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 
-    const handleAddContainer = () => {
+    const handleAddContainer = async () => {
         if (!room) return;
 
-        const newContainers: Container[] = Array.from({ length: newContainerQuantity }, (_, i) => ({
-            id: `cont-${Date.now()}-${i}`,
+        const newContainers: Omit<Container, 'id'>[] = Array.from({ length: newContainerQuantity }, (_, i) => ({
             name: `${newContainerType.charAt(0).toUpperCase() + newContainerType.slice(1)} ${containers.length + i + 1}`,
             type: newContainerType,
             status: 'good',
@@ -126,31 +121,38 @@ const RoomDetail = () => {
             position: { x: (containers.length + i) % 4, y: Math.floor((containers.length + i) / 4) }
         }));
 
-        updateRoom({
-            ...room,
-            containers: [...containers, ...newContainers]
-        });
-
-        setIsAddModalOpen(false);
-        setNewContainerQuantity(1);
-    };
-
-    const handleDeleteContainer = (e: React.MouseEvent, id: string) => {
-        e.stopPropagation();
-        if (!room) return;
-        if (confirm('Delete this container and all items inside?')) {
-            updateRoom({
-                ...room,
-                containers: containers.filter(c => c.id !== id)
-            });
+        try {
+            await addContainers(room.id, newContainers);
+            setIsAddModalOpen(false);
+            setNewContainerQuantity(1);
+        } catch (error) {
+            console.error('Failed to add containers:', error);
+            alert(getErrorMessage(error, 'Gagal menambah container. Silakan coba lagi.'));
         }
     };
 
-    const handleUpdateContainer = (updatedContainer: Container) => {
+    const handleDeleteContainer = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
         if (!room) return;
-        // Clean Refactor: Use Context Action directly
-        updateContainer(room.id, updatedContainer);
-        setSelectedContainer(updatedContainer); // Update the currently open details
+        if (confirm('Delete this container and all items inside?')) {
+            try {
+                await deleteContainer(room.id, id);
+            } catch (error) {
+                console.error('Failed to delete container:', error);
+                alert(getErrorMessage(error, 'Gagal menghapus container. Silakan coba lagi.'));
+            }
+        }
+    };
+
+    const handleUpdateContainer = async (updatedContainer: Container) => {
+        if (!room) return;
+        try {
+            await updateContainer(room.id, updatedContainer);
+            setSelectedContainer(updatedContainer); // Keep modal context after save
+        } catch (error) {
+            console.error('Failed to update container:', error);
+            alert(getErrorMessage(error, 'Gagal memperbarui container. Silakan coba lagi.'));
+        }
     };
 
     const sensors = useSensors(
@@ -158,7 +160,7 @@ const RoomDetail = () => {
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
-    const handleDragEnd = (event: any) => {
+    const handleDragEnd = async (event: any) => {
         const { active, over } = event;
 
         if (active.id !== over?.id) {
@@ -167,11 +169,13 @@ const RoomDetail = () => {
 
             if (oldIndex !== -1 && newIndex !== -1) {
                 const newContainers = arrayMove(containers, oldIndex, newIndex);
-                if (room) {
-                    updateRoom({
-                        ...room,
-                        containers: newContainers
-                    });
+                if (room && newContainers.length > 0) {
+                    try {
+                        await reorderContainers(room.id, newContainers.map((container) => container.id));
+                    } catch (error) {
+                        console.error('Failed to reorder containers:', error);
+                        alert(getErrorMessage(error, 'Gagal menyimpan urutan container. Silakan coba lagi.'));
+                    }
                 }
             }
         }
@@ -276,15 +280,17 @@ const RoomDetail = () => {
 
             <AnimatePresence>
                 {selectedContainer && (
-                    roomType === 'computer' && selectedContainer.type === 'table' ? (
+                    isComputerLab && selectedContainer.type === 'table' ? (
                         <StationDetailModal
                             station={selectedContainer}
+                            roomId={room.id}
                             onClose={() => setSelectedContainer(null)}
                             onUpdate={handleUpdateContainer}
                         />
                     ) : (
                         <ContainerDetailModal
                             container={selectedContainer}
+                            roomId={room.id}
                             onClose={() => setSelectedContainer(null)}
                             onUpdate={handleUpdateContainer}
                         />

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 type Language = 'en' | 'id';
@@ -11,11 +11,75 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const PREFERENCES_ENDPOINT = `${API_BASE_URL}/preferences/preferences.php`;
+
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-    const [language, setLanguage] = useState<Language>('id');
+    const [language, setLanguage] = useState<Language>(() => {
+        const saved = localStorage.getItem('language_pref');
+        return saved === 'en' || saved === 'id' ? saved : 'id';
+    });
+
+    useEffect(() => {
+        localStorage.setItem('language_pref', language);
+    }, [language]);
+
+    useEffect(() => {
+        const rawUser = localStorage.getItem('auth_user');
+        if (!rawUser) return;
+
+        let userId: string | null = null;
+        try {
+            const parsed = JSON.parse(rawUser) as { id?: string };
+            userId = typeof parsed.id === 'string' ? parsed.id : null;
+        } catch {
+            userId = null;
+        }
+        if (!userId) return;
+
+        const loadLanguagePreference = async () => {
+            try {
+                const response = await fetch(`${PREFERENCES_ENDPOINT}?user_id=${encodeURIComponent(userId)}`);
+                const payload = await response.json().catch(() => ({})) as { status?: string; preferences?: { language?: string } };
+                if (!response.ok || payload.status === 'error') return;
+
+                const backendLanguage = payload.preferences?.language;
+                if (backendLanguage === 'en' || backendLanguage === 'id') {
+                    setLanguage(backendLanguage);
+                }
+            } catch (error) {
+                console.error('Failed to load language preference:', error);
+            }
+        };
+
+        void loadLanguagePreference();
+    }, []);
 
     const toggleLanguage = () => {
-        setLanguage(prev => prev === 'en' ? 'id' : 'en');
+        setLanguage(prev => {
+            const nextLanguage: Language = prev === 'en' ? 'id' : 'en';
+
+            const rawUser = localStorage.getItem('auth_user');
+            if (!rawUser) return nextLanguage;
+
+            try {
+                const parsed = JSON.parse(rawUser) as { id?: string };
+                if (!parsed.id) return nextLanguage;
+
+                void fetch(PREFERENCES_ENDPOINT, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: parsed.id,
+                        language: nextLanguage
+                    })
+                });
+            } catch {
+                // ignore malformed session
+            }
+
+            return nextLanguage;
+        });
     };
 
     const translations: Record<string, { en: string; id: string }> = {
