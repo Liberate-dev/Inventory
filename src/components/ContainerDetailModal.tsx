@@ -198,7 +198,7 @@ const ContainerDetailModal = ({ container, initialItemId, onClose, onUpdate }: C
                             <p className="text-sm mb-6">{t('container_empty_desc')}</p>
                             <button
                                 onClick={handleOpenAdd}
-                                className="px-6 py-2.5 text-white bg-indigo-600 font-medium hover:bg-indigo-50 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                                className="px-6 py-2.5 text-white bg-indigo-600 font-medium hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
                             >
                                 {t('add_first_item')}
                             </button>

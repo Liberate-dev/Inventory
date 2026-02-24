@@ -12,7 +12,7 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider = ({ children }: { children: ReactNode }) => {
-    const [language, setLanguage] = useState<Language>('en');
+    const [language, setLanguage] = useState<Language>('id');
 
     const toggleLanguage = () => {
         setLanguage(prev => prev === 'en' ? 'id' : 'en');
@@ -174,6 +174,20 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
         'report_issue_item': { en: 'Report\nIssue', id: 'Lapor\nMasalah' },
         'low_stock': { en: 'LOW STOCK', id: 'STOK RENDAH' },
         'describe_issue': { en: 'Describe the issue with', id: 'Jelaskan masalah dengan' },
+
+        // Verification
+        'verification_title': { en: 'Identity Verification', id: 'Verifikasi Identitas' },
+        'verification_desc': { en: 'Please enter your name, phone number, or email to proceed.', id: 'Mohon masukkan nama, nomor HP, atau email untuk melanjutkan.' },
+        'verification_label': { en: 'Identity (Name / Phone / Email)', id: 'Identitas (Nama / No. HP / Email)' },
+        'verification_placeholder': { en: 'Example: Budi / 08123456789', id: 'Contoh: Budi / 08123456789' },
+        'btn_verify': { en: 'Verify', id: 'Verifikasi' },
+
+        // Report
+        'report_overview_title': { en: 'Global Inventory Overview', id: 'Ringkasan Inventaris Global' },
+        'total_items': { en: 'Total Items', id: 'Total Item' },
+        'total_value': { en: 'Total Value', id: 'Total Nilai' },
+        'items_by_room': { en: 'Items by Room', id: 'Item per Ruangan' },
+        'items_by_category': { en: 'Items by Category', id: 'Item per Kategori' },
     };
 
     const t = (key: string) => {
@@ -183,9 +197,10 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <LanguageContext.Provider value={{ language, toggleLanguage, t }}>
+        <LanguageContext.Provider value={{ language, toggleLanguage, t }
+        }>
             {children}
-        </LanguageContext.Provider>
+        </LanguageContext.Provider >
     );
 };
 

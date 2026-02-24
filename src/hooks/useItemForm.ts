@@ -14,6 +14,8 @@ interface ItemFormData {
 }
 
 export const useItemForm = (initialItem?: Item | null) => {
+    void initialItem;
+
     const defaultState: ItemFormData = {
         name: '',
         sku: '',

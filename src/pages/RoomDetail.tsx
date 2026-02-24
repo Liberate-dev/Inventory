@@ -189,20 +189,20 @@ const RoomDetail = () => {
                 <div className="flex items-center gap-4">
                     <button
                         onClick={() => navigate('/dashboard/rooms')}
-                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                     >
                         <ArrowLeft size={20} />
                     </button>
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-900">{room.name}</h2>
-                        <p className="text-gray-500 text-sm">Room ID: {roomId} • {room.capacity} Capacity</p>
+                        <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">{room.name}</h2>
+                        <p className="text-slate-500 text-sm">Room ID: {roomId} • {room.capacity} Capacity</p>
                     </div>
                 </div>
 
                 <div className="flex gap-2">
                     <button
                         onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow hover:bg-indigo-500 transition-colors mr-2"
+                        className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-xl shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-colors mr-2 font-semibold"
                     >
                         <Plus size={18} />
                         <span>Add Container</span>
@@ -210,13 +210,13 @@ const RoomDetail = () => {
 
                     <button
                         onClick={() => setScale(s => Math.min(s + 0.1, 1.5))}
-                        className="p-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50"
+                        className="p-2 bg-white border border-slate-200 rounded-xl shadow-sm hover:bg-slate-50"
                     >
                         <ZoomIn size={20} />
                     </button>
                     <button
                         onClick={() => setScale(s => Math.max(s - 0.1, 0.5))}
-                        className="p-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50"
+                        className="p-2 bg-white border border-slate-200 rounded-xl shadow-sm hover:bg-slate-50"
                     >
                         <ZoomOut size={20} />
                     </button>
@@ -224,7 +224,7 @@ const RoomDetail = () => {
                 </div>
             </div>
 
-            <div className="flex-1 bg-gray-100 rounded-2xl overflow-hidden relative border border-gray-200 shadow-inner">
+            <div className="flex-1 bg-slate-100 rounded-2xl overflow-hidden relative border border-slate-200 shadow-inner">
                 {/* Isometric Grid Container */}
                 <DndContext
                     sensors={sensors}
@@ -298,21 +298,21 @@ const RoomDetail = () => {
                     <motion.div
                         initial={{ scale: 0.95, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
-                        className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
+                        className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-200"
                     >
                         <div className="flex justify-between items-center p-4 border-b border-gray-100">
-                            <h3 className="text-lg font-bold text-gray-800">Add New Container</h3>
-                            <button onClick={() => setIsAddModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                            <h3 className="text-lg font-bold text-slate-800">Add New Container</h3>
+                            <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                                 <X size={20} />
                             </button>
                         </div>
                         <div className="p-4 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
                                 <select
                                     value={newContainerType}
                                     onChange={(e) => setNewContainerType(e.target.value as any)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
                                 >
                                     <option value="table">Table (Meja)</option>
                                     <option value="cupboard">Cupboard (Lemari)</option>
@@ -320,19 +320,19 @@ const RoomDetail = () => {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
                                 <input
                                     type="number"
                                     min="1"
                                     max="50"
                                     value={newContainerQuantity}
                                     onChange={(e) => setNewContainerQuantity(parseInt(e.target.value) || 1)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
                                 />
                             </div>
                             <button
                                 onClick={handleAddContainer}
-                                className="w-full py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-500 transition-colors mt-2"
+                                className="w-full py-2.5 bg-[#000080] text-white rounded-xl font-semibold hover:bg-[#000060] transition-colors mt-2"
                             >
                                 Add {newContainerQuantity} Container{newContainerQuantity > 1 ? 's' : ''}
                             </button>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { ArrowRightLeft, ClipboardList, CheckCircle, Search, Calendar, User as UserIcon, AlertCircle, Plus, CheckSquare, Square, X, Clock, ArrowRight } from 'lucide-react';
 import type { Item, ComponentCondition, ComponentStatus, Room, Container, ItemLog } from '../../types';
+import VerificationModal from '../../components/VerificationModal';
 
 export default function OperationsPage() {
     const { rooms, updateRoom } = useInventory();
@@ -11,7 +12,12 @@ export default function OperationsPage() {
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
     const [isSelectionModalOpen, setIsSelectionModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState(''); // Inside modal search
+
     const [showSuccess, setShowSuccess] = useState<string | null>(null);
+
+    // Verification State
+    const [isVerificationOpen, setIsVerificationOpen] = useState(false);
+    const [pendingAction, setPendingAction] = useState<'transfer' | 'usage' | null>(null);
 
     // Filter Logic for Modal
     const allItems: { item: Item; room: Room; container: Container }[] = [];
@@ -46,7 +52,7 @@ export default function OperationsPage() {
         conditionBefore: 'good' as ComponentCondition
     });
 
-    const handleTransfer = (e: React.FormEvent) => {
+    const initiateTransfer = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (selectedItemIds.length === 0) {
@@ -59,6 +65,16 @@ export default function OperationsPage() {
             return;
         }
 
+        const targetRoom = rooms.find(r => r.id === transferForm.targetRoomId);
+        const targetContainer = targetRoom?.containers.find(c => c.id === transferForm.targetContainerId);
+
+        if (!targetRoom || !targetContainer) return;
+
+        setPendingAction('transfer');
+        setIsVerificationOpen(true);
+    };
+
+    const executeTransfer = (verifierInfo: string) => {
         const targetRoom = rooms.find(r => r.id === transferForm.targetRoomId);
         const targetContainer = targetRoom?.containers.find(c => c.id === transferForm.targetContainerId);
 
@@ -96,6 +112,7 @@ export default function OperationsPage() {
                     to: `${currentTargetRoom.name} - ${currentTargetContainer.name}`,
                     mover: transferForm.personResponsible,
                     receiver: transferForm.receiver, // New PIC
+                    verifiedBy: verifierInfo, // Added verification
                     condition: transferForm.conditionBefore,
                     verificationStatus: 'pending' // Pending confirmation
                 })
@@ -152,7 +169,7 @@ export default function OperationsPage() {
         conditionCheck: 'good' as ComponentCondition
     });
 
-    const handleUsage = (e: React.FormEvent) => {
+    const initiateUsage = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (selectedItemIds.length === 0) {
@@ -172,6 +189,11 @@ export default function OperationsPage() {
             return;
         }
 
+        setPendingAction('usage');
+        setIsVerificationOpen(true);
+    };
+
+    const executeUsage = (verifierInfo: string) => {
         let currentRoomsState = [...rooms];
         const updateLocalState = (updatedRoom: Room) => {
             const idx = currentRoomsState.findIndex(r => r.id === updatedRoom.id);
@@ -191,6 +213,7 @@ export default function OperationsPage() {
                 details: JSON.stringify({
                     borrower: usageForm.borrower,
                     purpose: usageForm.purpose,
+                    verifiedBy: verifierInfo,
                     condition: usageForm.conditionCheck
                 })
             };
@@ -264,7 +287,7 @@ export default function OperationsPage() {
 
                         <div className="p-8">
                             {activeTab === 'transfer' ? (
-                                <form onSubmit={handleTransfer} className="space-y-8">
+                                <form onSubmit={initiateTransfer} className="space-y-8">
                                     {/* logistics */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
@@ -413,7 +436,7 @@ export default function OperationsPage() {
                                     </button>
                                 </form>
                             ) : (
-                                <form onSubmit={handleUsage} className="space-y-8">
+                                <form onSubmit={initiateUsage} className="space-y-8">
                                     {/* Action Type Toggle */}
                                     <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
                                         <label className={`flex-1 text-center py-2.5 rounded-lg cursor-pointer font-bold text-sm transition-all ${usageForm.actionType === 'checkout' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -649,6 +672,20 @@ export default function OperationsPage() {
                     </div>
                 </div>
             )}
+
+            <VerificationModal
+                isOpen={isVerificationOpen}
+                onClose={() => {
+                    setIsVerificationOpen(false);
+                    setPendingAction(null);
+                }}
+                onVerify={(info) => {
+                    if (pendingAction === 'transfer') executeTransfer(info);
+                    if (pendingAction === 'usage') executeUsage(info);
+                }}
+                title="Verifikasi Transaksi"
+                description="Masukkan nama lengkap, nomor HP, atau email untuk memverifikasi transaksi ini."
+            />
         </div>
     );
 }

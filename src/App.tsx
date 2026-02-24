@@ -4,6 +4,7 @@ import { ServiceRequestProvider } from './context/ServiceRequestContext';
 import { InventoryProvider } from './context/InventoryContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { PortalProvider } from './context/PortalContext';
 
 import DashboardLayout from './components/DashboardLayout';
 import RoomList from './pages/RoomList';
@@ -28,39 +29,41 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const App = () => {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <InventoryProvider>
-          <ServiceRequestProvider>
-            <Router>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
+      <PortalProvider>
+        <ToastProvider>
+          <InventoryProvider>
+            <ServiceRequestProvider>
+              <Router>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
 
-                {/* Protected Root: Landing Page (Portal Selection) */}
-                <Route path="/" element={
-                  <ProtectedRoute>
-                    <LandingPage />
-                  </ProtectedRoute>
-                } />
+                  {/* Protected Root: Landing Page (Portal Selection) */}
+                  <Route path="/" element={
+                    <ProtectedRoute>
+                      <LandingPage />
+                    </ProtectedRoute>
+                  } />
 
-                <Route path="/dashboard" element={
-                  <ProtectedRoute>
-                    <DashboardLayout />
-                  </ProtectedRoute>
-                }>
-                  <Route index element={<Overview />} />
-                  <Route path="rooms" element={<RoomList />} />
-                  <Route path="rooms/:roomId" element={<RoomDetail />} />
-                  <Route path="service-requests" element={<ServiceRequests />} />
-                  <Route path="profile" element={<UserProfile />} />
-                  <Route path="admin/users" element={<UserManagement />} />
-                  <Route path="reports" element={<ReportPage />} />
-                  <Route path="operations" element={<OperationsPage />} />
-                </Route>
-              </Routes>
-            </Router>
-          </ServiceRequestProvider>
-        </InventoryProvider>
-      </ToastProvider>
+                  <Route path="/dashboard" element={
+                    <ProtectedRoute>
+                      <DashboardLayout />
+                    </ProtectedRoute>
+                  }>
+                    <Route index element={<Overview />} />
+                    <Route path="rooms" element={<RoomList />} />
+                    <Route path="rooms/:roomId" element={<RoomDetail />} />
+                    <Route path="service-requests" element={<ServiceRequests />} />
+                    <Route path="profile" element={<UserProfile />} />
+                    <Route path="admin/users" element={<UserManagement />} />
+                    <Route path="reports" element={<ReportPage />} />
+                    <Route path="operations" element={<OperationsPage />} />
+                  </Route>
+                </Routes>
+              </Router>
+            </ServiceRequestProvider>
+          </InventoryProvider>
+        </ToastProvider>
+      </PortalProvider>
     </AuthProvider>
   );
 };

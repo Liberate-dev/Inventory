@@ -18,12 +18,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Initial Mock Users
 const INITIAL_USERS: User[] = [
     { id: 'u1', username: 'admin', name: 'Super Admin', email: 'admin@lab.com', phone: '081234567890', role: 'admin', avatar: 'https://ui-avatars.com/api/?name=Super+Admin&background=dc2626&color=fff' },
-    { id: 'u2', username: 'kalab_kom', name: 'Ka. Lab Komputer', email: 'kalab.kom@lab.com', phone: '081234567891', role: 'kepala_lab', labScope: 'computer', avatar: 'https://ui-avatars.com/api/?name=Ka+Lab+Kom&background=4f46e5&color=fff' },
-    { id: 'u3', username: 'kalab_bio', name: 'Ka. Lab Biologi', email: 'kalab.bio@lab.com', phone: '081234567892', role: 'kepala_lab', labScope: 'biology', avatar: 'https://ui-avatars.com/api/?name=Ka+Lab+Bio&background=16a34a&color=fff' },
-    { id: 'u4', username: 'kalab_fis', name: 'Ka. Lab Fisika', email: 'kalab.fis@lab.com', phone: '081234567893', role: 'kepala_lab', labScope: 'physics', avatar: 'https://ui-avatars.com/api/?name=Ka+Lab+Fis&background=ca8a04&color=fff' },
-    { id: 'u5', username: 'guru', name: 'Guru Produktif', email: 'guru@lab.com', phone: '081234567894', role: 'guru', avatar: 'https://ui-avatars.com/api/?name=Guru+Prod&background=0891b2&color=fff' },
-    { id: 'u6', username: 'kepsek', name: 'Kepala Sekolah', email: 'kepsek@lab.com', phone: '081234567895', role: 'kepala_sekolah', avatar: 'https://ui-avatars.com/api/?name=Kepala+Sekolah&background=475569&color=fff' },
-    { id: 'u7', username: 'sarpras', name: 'Sarpras', email: 'sarpras@lab.com', phone: '081234567896', role: 'sarpras', avatar: 'https://ui-avatars.com/api/?name=Sarpras&background=ea580c&color=fff' },
+    { id: 'u2', username: 'admin1_kom', name: 'Admin 1 (Komputer)', email: 'admin1.kom@lab.com', phone: '081234567891', role: 'kepala_lab', labScope: 'computer', avatar: 'https://ui-avatars.com/api/?name=Admin+1&background=4f46e5&color=fff' },
+    { id: 'u3', username: 'admin1_bio', name: 'Admin 1 (Biologi)', email: 'admin1.bio@lab.com', phone: '081234567892', role: 'kepala_lab', labScope: 'biology', avatar: 'https://ui-avatars.com/api/?name=Admin+1&background=16a34a&color=fff' },
+    { id: 'u4', username: 'admin1_fis', name: 'Admin 1 (Fisika)', email: 'admin1.fis@lab.com', phone: '081234567893', role: 'kepala_lab', labScope: 'physics', avatar: 'https://ui-avatars.com/api/?name=Admin+1&background=ca8a04&color=fff' },
+    { id: 'u5', username: 'admin2', name: 'Admin 2', email: 'admin2@lab.com', phone: '081234567894', role: 'guru', avatar: 'https://ui-avatars.com/api/?name=Admin+2&background=0891b2&color=fff' },
+    { id: 'u6', username: 'kepsek', name: 'Kepala Sekolah', email: 'kepsek@lab.com', phone: '081234567895', role: 'kepala_sekolah', avatar: 'https://ui-avatars.com/api/?name=Kepsek&background=475569&color=fff' },
 ];
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -58,25 +57,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }, [allUsers]);
 
     const login = async (identifier: string, password: string) => {
-        return new Promise<{ success: boolean; error?: string }>((resolve) => {
-            setTimeout(() => {
-                // Determine user from "Database"
-                const foundUser = allUsers.find(u =>
-                    u.email?.toLowerCase() === identifier.toLowerCase() ||
-                    (u.username && u.username.toLowerCase() === identifier.toLowerCase())
-                );
+        try {
+            const response = await fetch('http://localhost:8000/api/auth/login.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username: identifier, password }),
+            });
 
-                // Mock Password Check (In real app, hash check)
-                const isValid = foundUser && (password === 'admin' || password === '123456');
+            const data = await response.json();
 
-                if (foundUser && isValid) {
-                    setUser(foundUser);
-                    resolve({ success: true });
-                } else {
-                    resolve({ success: false, error: 'Invalid credentials. Try "admin" or "123456"' });
-                }
-            }, 600);
-        });
+            if (data.success) {
+                setUser(data.user);
+                localStorage.setItem('auth_token', data.token); // Store token
+                return { success: true };
+            } else {
+                return { success: false, error: data.message };
+            }
+        } catch (error) {
+            console.error("Login error:", error);
+            return {
+                success: false,
+                error: "Gagal terhubung ke server. Pastikan backend (PHP) berjalan."
+            };
+        }
     };
 
     const logout = () => setUser(null);

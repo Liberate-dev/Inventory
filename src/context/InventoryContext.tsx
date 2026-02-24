@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
-import type { Room, ItemLog, Item, Container } from '../types';
+import type { Room, ItemLog, Container } from '../types';
+import { usePortal } from './PortalContext';
 
 interface InventoryStats {
     totalRooms: number;
@@ -26,54 +27,49 @@ interface InventoryContextType {
 
     stats: InventoryStats;
     recentLogs: { roomName: string; itemName: string; log: ItemLog }[];
+    loading: boolean;
+    error: string | null;
 }
 
 const InventoryContext = createContext<InventoryContextType | undefined>(undefined);
 
-// Initial mock data moved from RoomList
-const initialRooms: Room[] = [
-    { id: 'lab-comp', name: 'Computer Lab 1', type: 'computer', capacity: 30, containers: [] },
-    { id: 'lab-phy', name: 'Physics Lab', type: 'physics', capacity: 24, containers: [] },
-    { id: 'lab-bio', name: 'Biology Lab', type: 'biology', capacity: 20, containers: [] },
-    { id: 'lab-comp-2', name: 'Computer Lab 2', type: 'computer', capacity: 35, containers: [] },
-];
+
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
-    const [rooms, setRooms] = useState<Room[]>(() => {
-        const saved = localStorage.getItem('inventory_rooms');
-        let parsedRooms = saved ? JSON.parse(saved) : initialRooms;
+    const { portalType } = usePortal();
+    const [rooms, setRooms] = useState<Room[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-        // Auto-Migration: Ensure all items have 'condition' and 'status'
-        parsedRooms = parsedRooms.map((room: Room) => ({
-            ...room,
-            containers: room.containers?.map(container => ({
-                ...container,
-                items: container.items?.map((item: any) => {
-                    // Check if migration is needed (missing condition)
-                    if (!item.condition) {
-                        const oldStatus = item.status; // Legacy status often held condition values
-                        const isConditionValue = ['good', 'service', 'damaged', 'broken'].includes(oldStatus);
-                        return {
-                            ...item,
-                            condition: isConditionValue ? oldStatus : 'good',
-                            status: 'available', // Default availability for migrated items
-                        } as Item; // Cast to ensure it matches new type
-                    }
-                    return item;
-                }) || []
-            })) || []
-        }));
-
-        return parsedRooms;
-    });
+    const fetchRooms = async () => {
+        try {
+            const response = await fetch('http://localhost:8000/api/inventory/rooms.php');
+            if (!response.ok) throw new Error('Failed to fetch inventory');
+            const data = await response.json();
+            setRooms(data);
+        } catch (err) {
+            console.error(err);
+            setError('Gagal memuat data inventory.');
+            // Fallback to empty or keep emptyMain
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        localStorage.setItem('inventory_rooms', JSON.stringify(rooms));
-    }, [rooms]);
+        fetchRooms();
+    }, []);
+
+    // Effect for local storage REMOVED explicitly to rely on DB
+    // (Or we can keep it as backup, but better to rely on API)
+
+
+    // Filter rooms based on active portal
+    const filteredRooms = useMemo(() => rooms.filter(r => r.category === portalType), [rooms, portalType]);
 
     // Derived Stats
     const stats: InventoryStats = {
-        totalRooms: rooms.length,
+        totalRooms: filteredRooms.length,
         totalAssets: 0,
         health: { good: 0, service: 0, damaged: 0, broken: 0 },
         grading: 100
@@ -81,8 +77,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
 
     const recentLogs: { roomName: string; itemName: string; log: ItemLog }[] = [];
 
-    // Calculate Stats & Collect Logs
-    rooms.forEach(room => {
+    // Calculate Stats & Collect Logs (using filtered rooms)
+    filteredRooms.forEach(room => {
         room.containers?.forEach(container => {
             container.items?.forEach(item => {
                 stats.totalAssets++;
@@ -120,7 +116,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const addRoom = (room: Room) => {
-        setRooms(prev => [...prev, room]);
+        setRooms(prev => [...prev, { ...room, category: portalType }]);
     };
 
     const updateRoom = (updatedRoom: Room) => {
@@ -145,15 +141,17 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const getRoom = (id: string) => rooms.find(r => r.id === id);
 
     const value = useMemo(() => ({
-        rooms,
+        rooms: filteredRooms,
         addRoom,
         updateRoom,
         deleteRoom,
         getRoom,
         updateContainer,
         stats,
-        recentLogs: limitedLogs
-    }), [rooms, stats, limitedLogs]);
+        recentLogs: limitedLogs,
+        loading,
+        error
+    }), [filteredRooms, stats, limitedLogs, loading, error]);
 
     return (
         <InventoryContext.Provider value={value}>

@@ -75,7 +75,8 @@ export interface Container {
 export interface Room {
     id: string;
     name: string;
-    type: 'computer' | 'physics' | 'biology' | 'other';
+    category: 'lab' | 'non-lab';
+    type: 'computer' | 'physics' | 'biology' | 'classroom' | 'office' | 'warehouse' | 'other';
     customType?: string;
     capacity: number;
     containers: Container[];

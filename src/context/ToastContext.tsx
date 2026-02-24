@@ -54,14 +54,14 @@ const ToastItem = ({ toast, onClose }: { toast: Toast; onClose: () => void }) =>
         success: <CheckCircle size={20} className="text-emerald-500" />,
         error: <AlertCircle size={20} className="text-rose-500" />,
         warning: <AlertTriangle size={20} className="text-amber-500" />,
-        info: <Info size={20} className="text-indigo-500" />,
+        info: <Info size={20} className="text-[#000080]" />,
     };
 
     const bgColors = {
         success: 'bg-white border-emerald-100 shadow-emerald-100',
         error: 'bg-white border-rose-100 shadow-rose-100',
         warning: 'bg-white border-amber-100 shadow-amber-100',
-        info: 'bg-white border-indigo-100 shadow-indigo-100',
+        info: 'bg-white border-blue-100 shadow-blue-100',
     };
 
     return (
