@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ZoomIn, ZoomOut, Plus, X, Trash2, Box, Layers, LayoutTemplate, Archive } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -43,7 +43,7 @@ const ContainerCard = ({ container }: { container: Container }) => {
             </div>
             <div className="text-center w-full px-2">
                 <div className="font-bold text-sm truncate">{container.name}</div>
-                <div className="text-[10px] opacity-60 uppercase tracking-wider truncate">{itemCount} items</div>
+                <div className="text-[10px] opacity-60 uppercase tracking-wider truncate">{itemCount} item</div>
             </div>
 
             <div className={`w-3 h-3 rounded-full absolute top-3 right-3 shadow-sm ${itemCount > 0 ? 'bg-emerald-500' : 'bg-gray-300'
@@ -52,7 +52,7 @@ const ContainerCard = ({ container }: { container: Container }) => {
     );
 };
 
-const SortableContainerItem = ({ container, onClick, onDelete }: { container: Container, onClick: (c: Container) => void, onDelete: (e: any, id: string) => void }) => {
+const SortableContainerItem = ({ container, onClick, onDelete, canEdit = true }: { container: Container, onClick: (c: Container) => void, onDelete: (e: any, id: string) => void, canEdit?: boolean }) => {
     const {
         attributes,
         listeners,
@@ -74,13 +74,15 @@ const SortableContainerItem = ({ container, onClick, onDelete }: { container: Co
             {/* We make the whole item draggable via attributes/listeners on the wrapper or specific handle */}
 
             <div {...attributes} {...listeners}>
-                <button
-                    onClick={(e) => onDelete(e, container.id)}
-                    className="absolute -top-2 -right-2 z-10 p-1.5 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:scale-110 cursor-pointer"
-                    onPointerDown={(e) => e.stopPropagation()} // Prevent drag start on delete
-                >
-                    <Trash2 size={12} />
-                </button>
+                {canEdit && (
+                    <button
+                        onClick={(e) => onDelete(e, container.id)}
+                        className="absolute -top-2 -right-2 z-10 p-1.5 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:scale-110 cursor-pointer"
+                        onPointerDown={(e) => e.stopPropagation()} // Prevent drag start on delete
+                    >
+                        <Trash2 size={12} />
+                    </button>
+                )}
                 <div onClick={() => onClick(container)}>
                     <ContainerCard container={container} />
                 </div>
@@ -90,31 +92,54 @@ const SortableContainerItem = ({ container, onClick, onDelete }: { container: Co
 };
 
 import { useInventory } from '../context/InventoryContext';
+import { useAuth } from '../context/AuthContext';
+import { useAccessMatrix } from '../context/AccessMatrixContext';
 
 const RoomDetail = () => {
     const { roomId } = useParams();
     const navigate = useNavigate();
     const { getRoom, addContainers, updateContainer, deleteContainer, reorderContainers } = useInventory();
+    const { user: currentUser } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
+    const canEdit = currentUser ? canEditFeature('rooms', currentUser.role) : false;
     const room = getRoom(roomId || '');
+
+    const hasGlobalAccess = currentUser?.role === 'admin' || currentUser?.role === 'kepala_sekolah' || currentUser?.role === 'sarpras';
+    const isRestricted = !hasGlobalAccess && currentUser && currentUser.labScope !== 'all' && room && room.type !== currentUser.labScope;
 
     const [scale, setScale] = useState(1);
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
     const isComputerLab = room?.type === 'computer';
+
+    // Keep modal context in sync with global state to get actual DB IDs after optimstic updates
+    // Keep modal context in sync with global state to get actual DB IDs after optimstic updates
+    useEffect(() => {
+        if (selectedContainer && room) {
+            const updated = room.containers.find((c: any) => c.id === selectedContainer.id);
+            if (updated) {
+                setSelectedContainer(updated);
+            }
+        }
+    }, [room, selectedContainer?.id]);
 
     // Get containers from global state
     const containers = room?.containers || [];
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newContainerType, setNewContainerType] = useState<'table' | 'cupboard' | 'shelf'>('table');
-    const [newContainerQuantity, setNewContainerQuantity] = useState(1);
+    const [newContainerName, setNewContainerName] = useState('');
+    const [newContainerQuantity, setNewContainerQuantity] = useState<number | ''>('');
     const getErrorMessage = (error: unknown, fallback: string) =>
         error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 
     const handleAddContainer = async () => {
         if (!room) return;
+        const qty = newContainerQuantity === '' ? 1 : newContainerQuantity;
 
-        const newContainers: Omit<Container, 'id'>[] = Array.from({ length: newContainerQuantity }, (_, i) => ({
-            name: `${newContainerType.charAt(0).toUpperCase() + newContainerType.slice(1)} ${containers.length + i + 1}`,
+        const newContainers: Omit<Container, 'id'>[] = Array.from({ length: qty }, (_, i) => ({
+            name: newContainerName.trim()
+                ? (qty > 1 ? `${newContainerName.trim()} ${i + 1}` : newContainerName.trim())
+                : `${newContainerType.charAt(0).toUpperCase() + newContainerType.slice(1)} ${containers.length + i + 1}`,
             type: newContainerType,
             status: 'good',
             items: [],
@@ -124,7 +149,8 @@ const RoomDetail = () => {
         try {
             await addContainers(room.id, newContainers);
             setIsAddModalOpen(false);
-            setNewContainerQuantity(1);
+            setNewContainerName('');
+            setNewContainerQuantity('');
         } catch (error) {
             console.error('Failed to add containers:', error);
             alert(getErrorMessage(error, 'Gagal menambah container. Silakan coba lagi.'));
@@ -134,7 +160,7 @@ const RoomDetail = () => {
     const handleDeleteContainer = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         if (!room) return;
-        if (confirm('Delete this container and all items inside?')) {
+        if (confirm('Hapus wadah ini beserta seluruh isinya?')) {
             try {
                 await deleteContainer(room.id, id);
             } catch (error) {
@@ -185,7 +211,27 @@ const RoomDetail = () => {
     const [activeId, setActiveId] = useState<string | null>(null);
     const activeContainer = activeId ? containers.find(c => c.id === activeId) : null;
 
-    if (!room) return <div>Room not found</div>;
+    if (!room) return <div>Ruangan tidak ditemukan</div>;
+
+    if (isRestricted) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-4">
+                    <Trash2 size={32} className="opacity-50" /> {/* Reusing an icon for visual impact, a lock would be better but keeping imports simple */}
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">Akses Ditolak</h2>
+                <p className="text-slate-600 max-w-md">
+                    Anda tidak memiliki izin untuk melihat ruangan ini. Cakupan akses Anda dibatasi hanya untuk {currentUser?.labScope === 'computer' ? 'Lab Komputer' : currentUser?.labScope === 'physics' ? 'Lab Fisika' : currentUser?.labScope === 'biology' ? 'Lab Biologi' : 'ruangan tertentu'}.
+                </p>
+                <button
+                    onClick={() => navigate('/dashboard/rooms')}
+                    className="mt-6 px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+                >
+                    Kembali ke Daftar Ruangan
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="h-full flex flex-col">
@@ -199,18 +245,20 @@ const RoomDetail = () => {
                     </button>
                     <div>
                         <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">{room.name}</h2>
-                        <p className="text-slate-500 text-sm">Room ID: {roomId} • {room.capacity} Capacity</p>
+                        <p className="text-slate-500 text-sm">ID Ruangan: {roomId} • Kapasitas: {room.capacity}</p>
                     </div>
                 </div>
 
                 <div className="flex gap-2">
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-xl shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-colors mr-2 font-semibold"
-                    >
-                        <Plus size={18} />
-                        <span>Add Container</span>
-                    </button>
+                    {canEdit && (
+                        <button
+                            onClick={() => { setIsAddModalOpen(true); setNewContainerName(''); setNewContainerType('table'); setNewContainerQuantity(''); }}
+                            className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-xl shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-colors mr-2 font-semibold"
+                        >
+                            <Plus size={18} />
+                            <span>Tambah Wadah</span>
+                        </button>
+                    )}
 
                     <button
                         onClick={() => setScale(s => Math.min(s + 0.1, 1.5))}
@@ -261,6 +309,7 @@ const RoomDetail = () => {
                                             container={container}
                                             onClick={setSelectedContainer}
                                             onDelete={handleDeleteContainer}
+                                            canEdit={canEdit}
                                         />
                                     ))}
                                 </div>
@@ -307,32 +356,52 @@ const RoomDetail = () => {
                         className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden border border-slate-200"
                     >
                         <div className="flex justify-between items-center p-4 border-b border-gray-100">
-                            <h3 className="text-lg font-bold text-slate-800">Add New Container</h3>
+                            <h3 className="text-lg font-bold text-slate-800">Tambah Wadah Baru</h3>
                             <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                                 <X size={20} />
                             </button>
                         </div>
                         <div className="p-4 space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Nama (Opsional)</label>
+                                <input
+                                    type="text"
+                                    value={newContainerName}
+                                    onChange={(e) => setNewContainerName(e.target.value)}
+                                    placeholder={`e.g. ${newContainerType.charAt(0).toUpperCase() + newContainerType.slice(1)} Utama`}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Tipe</label>
                                 <select
                                     value={newContainerType}
                                     onChange={(e) => setNewContainerType(e.target.value as any)}
                                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
                                 >
-                                    <option value="table">Table (Meja)</option>
-                                    <option value="cupboard">Cupboard (Lemari)</option>
-                                    <option value="shelf">Shelf (Rak)</option>
+                                    <option value="table">Meja (Table)</option>
+                                    <option value="cupboard">Lemari (Cupboard)</option>
+                                    <option value="shelf">Rak (Shelf)</option>
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Jumlah</label>
                                 <input
-                                    type="number"
-                                    min="1"
-                                    max="50"
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    placeholder="e.g. 1"
                                     value={newContainerQuantity}
-                                    onChange={(e) => setNewContainerQuantity(parseInt(e.target.value) || 1)}
+                                    onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '');
+                                        if (!val) {
+                                            setNewContainerQuantity('');
+                                            return;
+                                        }
+                                        let parsed = parseInt(val, 10);
+                                        if (parsed > 50) parsed = 50;
+                                        setNewContainerQuantity(parsed);
+                                    }}
                                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
                                 />
                             </div>
@@ -340,7 +409,7 @@ const RoomDetail = () => {
                                 onClick={handleAddContainer}
                                 className="w-full py-2.5 bg-[#000080] text-white rounded-xl font-semibold hover:bg-[#000060] transition-colors mt-2"
                             >
-                                Add {newContainerQuantity} Container{newContainerQuantity > 1 ? 's' : ''}
+                                Tambah {newContainerQuantity || 1} Wadah
                             </button>
                         </div>
                     </motion.div>

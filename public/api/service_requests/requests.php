@@ -32,7 +32,7 @@ function toValidId($value): ?int
     if (!is_numeric($value)) {
         return null;
     }
-    $id = (int)$value;
+    $id = (int) $value;
     return $id > 0 ? $id : null;
 }
 
@@ -44,7 +44,7 @@ function findRequesterId(PDO $db, ?int $requesterId, ?string $requesterName): ?i
         $existsStmt->execute();
         $row = $existsStmt->fetch(PDO::FETCH_ASSOC);
         if ($row && isset($row['id'])) {
-            return (int)$row['id'];
+            return (int) $row['id'];
         }
     }
 
@@ -61,7 +61,7 @@ function findRequesterId(PDO $db, ?int $requesterId, ?string $requesterName): ?i
         $lookupStmt->execute();
         $row = $lookupStmt->fetch(PDO::FETCH_ASSOC);
         if ($row && isset($row['id'])) {
-            return (int)$row['id'];
+            return (int) $row['id'];
         }
     }
 
@@ -87,7 +87,8 @@ function fetchServiceRequests(PDO $db): array
             c.name AS station_name,
             r.id AS room_id,
             r.name AS room_name,
-            u.name AS requester_name
+            u.name AS requester_name,
+            sr.requester_name AS stored_requester_name
         FROM service_requests sr
         LEFT JOIN items i ON sr.item_id = i.id
         LEFT JOIN containers c ON i.container_id = c.id
@@ -99,18 +100,21 @@ function fetchServiceRequests(PDO $db): array
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     return array_map(function ($row) {
-        $requesterNameRaw = isset($row['requester_name']) ? trim((string)$row['requester_name']) : '';
+        $requesterNameRaw = isset($row['requester_name']) ? trim((string) $row['requester_name']) : '';
+        if ($requesterNameRaw === '' && isset($row['stored_requester_name'])) {
+            $requesterNameRaw = trim((string) $row['stored_requester_name']);
+        }
         $requesterName = $requesterNameRaw !== ''
             ? $requesterNameRaw
-            : (($row['requester_id'] ?? null) !== null ? ('User #' . (string)$row['requester_id']) : null);
+            : (($row['requester_id'] ?? null) !== null ? ('User #' . (string) $row['requester_id']) : null);
 
         return [
-            'id' => (string)$row['id'],
-            'componentId' => $row['item_id'] !== null ? (string)$row['item_id'] : '',
+            'id' => (string) $row['id'],
+            'componentId' => $row['item_id'] !== null ? (string) $row['item_id'] : '',
             'componentName' => $row['component_name'] ?? 'Unknown Component',
-            'stationId' => $row['station_id'] !== null ? (string)$row['station_id'] : '',
+            'stationId' => $row['station_id'] !== null ? (string) $row['station_id'] : '',
             'stationName' => $row['station_name'] ?? 'Unknown Station',
-            'roomId' => $row['room_id'] !== null ? (string)$row['room_id'] : '',
+            'roomId' => $row['room_id'] !== null ? (string) $row['room_id'] : '',
             'roomName' => $row['room_name'] ?? null,
             'description' => $row['description'] ?? '',
             'requesterName' => $requesterName,
@@ -132,17 +136,17 @@ if ($method === 'GET') {
 if ($method === 'POST') {
     $itemId = toValidId($payload['componentId'] ?? $payload['item_id'] ?? null);
     $requesterId = toValidId($payload['requesterId'] ?? $payload['requester_id'] ?? null);
-    $requesterName = isset($payload['requesterName']) ? trim((string)$payload['requesterName']) : null;
+    $requesterName = isset($payload['requesterName']) ? trim((string) $payload['requesterName']) : null;
     $resolvedRequesterId = findRequesterId($db, $requesterId, $requesterName);
-    $description = isset($payload['description']) ? trim((string)$payload['description']) : '';
+    $description = isset($payload['description']) ? trim((string) $payload['description']) : '';
 
     if ($itemId === null || $description === '') {
         respondRequest(400, ['status' => 'error', 'message' => 'componentId and description are required.']);
     }
 
     $stmt = $db->prepare(
-        "INSERT INTO service_requests (item_id, requester_id, description, status)
-         VALUES (:item_id, :requester_id, :description, 'pending')"
+        "INSERT INTO service_requests (item_id, requester_id, requester_name, description, status)
+         VALUES (:item_id, :requester_id, :requester_name, :description, 'pending')"
     );
     $stmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
     if ($resolvedRequesterId === null) {
@@ -150,13 +154,18 @@ if ($method === 'POST') {
     } else {
         $stmt->bindValue(':requester_id', $resolvedRequesterId, PDO::PARAM_INT);
     }
+    if ($requesterName === null || $requesterName === '') {
+        $stmt->bindValue(':requester_name', null, PDO::PARAM_NULL);
+    } else {
+        $stmt->bindValue(':requester_name', $requesterName, PDO::PARAM_STR);
+    }
     $stmt->bindParam(':description', $description, PDO::PARAM_STR);
     $stmt->execute();
 
     respondRequest(201, [
         'status' => 'success',
         'message' => 'Service request created.',
-        'id' => (string)$db->lastInsertId()
+        'id' => (string) $db->lastInsertId()
     ]);
 }
 
@@ -166,11 +175,11 @@ if ($method === 'PUT') {
         respondRequest(400, ['status' => 'error', 'message' => 'Invalid service request id.']);
     }
 
-    $status = isset($payload['status']) ? (string)$payload['status'] : null;
+    $status = isset($payload['status']) ? (string) $payload['status'] : null;
     $rejectionReason = array_key_exists('rejectionReason', $payload)
-        ? (string)$payload['rejectionReason']
-        : (array_key_exists('rejection_reason', $payload) ? (string)$payload['rejection_reason'] : null);
-    $resolutionOutcome = isset($payload['resolutionOutcome']) ? (string)$payload['resolutionOutcome'] : null;
+        ? (string) $payload['rejectionReason']
+        : (array_key_exists('rejection_reason', $payload) ? (string) $payload['rejection_reason'] : null);
+    $resolutionOutcome = isset($payload['resolutionOutcome']) ? (string) $payload['resolutionOutcome'] : null;
 
     $fields = [];
     $params = [':id' => $id];
@@ -247,7 +256,7 @@ if ($method === 'PUT') {
             $requestRow = $itemStmt->fetch(PDO::FETCH_ASSOC);
 
             if ($requestRow && isset($requestRow['item_id'])) {
-                $itemId = (int)$requestRow['item_id'];
+                $itemId = (int) $requestRow['item_id'];
                 $nextCondition = $effectiveOutcome === 'broken' ? 'broken' : 'good';
                 $nextStatus = $effectiveOutcome === 'broken' ? 'missing' : 'available';
 
@@ -262,7 +271,7 @@ if ($method === 'PUT') {
                 $updateItemStmt->execute();
 
                 $logDetails = json_encode([
-                    'serviceRequestId' => (string)$id,
+                    'serviceRequestId' => (string) $id,
                     'outcome' => $effectiveOutcome
                 ]);
                 if ($logDetails === false) {

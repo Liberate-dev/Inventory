@@ -82,6 +82,10 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
         mapItemsToComponents(station.items || [])
     );
 
+    // Title editing state
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editTitle, setEditTitle] = useState(station.name);
+
     // Auto-select component if provided
     const [selectedComponent, setSelectedComponent] = useState<string | null>(() => {
         if (initialSelectedComponent && stationComponents[initialSelectedComponent]) {
@@ -108,6 +112,15 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
 
     const handleComponentClick = (type: ComponentType) => {
         setSelectedComponent(type);
+    };
+
+    const handleSaveTitle = () => {
+        if (editTitle.trim() && editTitle !== station.name) {
+            onUpdate({ ...station, name: editTitle.trim() });
+        } else {
+            setEditTitle(station.name);
+        }
+        setIsEditingTitle(false);
     };
 
     const handleInitiateReport = () => {
@@ -340,7 +353,27 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                         {selectedComponent && <button onClick={() => setSelectedComponent(null)} className="hover:bg-slate-800 p-1 rounded-full"><ChevronLeft size={20} /></button>}
                                         {selectedComponent ? (
                                             stationComponents[selectedComponent]?.name || `${t('add_component')} ${selectedComponent}`
-                                        ) : station.name}
+                                        ) : (
+                                            isEditingTitle ? (
+                                                <input
+                                                    type="text"
+                                                    value={editTitle}
+                                                    onChange={(e) => setEditTitle(e.target.value)}
+                                                    onBlur={handleSaveTitle}
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
+                                                    autoFocus
+                                                    className="bg-slate-800 border border-indigo-500 rounded px-2 py-0.5 outline-none focus:ring-2 focus:ring-indigo-500 text-white w-auto min-w-[200px]"
+                                                />
+                                            ) : (
+                                                <span
+                                                    className="cursor-text hover:text-indigo-400 hover:underline decoration-dashed decoration-indigo-400 underline-offset-4 transition-colors"
+                                                    onClick={() => setIsEditingTitle(true)}
+                                                    title="Click to edit name"
+                                                >
+                                                    {station.name}
+                                                </span>
+                                            )
+                                        )}
                                     </div>
                                 </div>
                             </div>

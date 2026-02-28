@@ -101,6 +101,17 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
         'last_30_days': { en: 'Last 30 Days', id: '30 Hari Terakhir' },
         'download_report': { en: 'Download Report', id: 'Unduh Laporan' },
 
+        // Dashboard Card Strings
+        'active_rooms': { en: 'Active Rooms', id: 'Ruangan Aktif' },
+        'total_open_rooms': { en: 'Total Open Rooms', id: 'Total Ruangan Dibuka' },
+        'items_inside_all_containers': { en: 'Items inside all containers', id: 'Barang di dalam semua wadah' },
+        'pending_issues': { en: 'Pending Issues', id: 'Kendala Menunggu' },
+        'unseen_not_accepted': { en: 'Unseen / Not Accepted', id: 'Belum Dilihat / Belum Diterima' },
+        'in_progress_issues': { en: 'In-Progress Issues', id: 'Kendala Diproses' },
+        'currently_being_handled': { en: 'Currently being handled', id: 'Sedang ditangani' },
+        'rooms_health': { en: 'Rooms Health Status', id: 'Status Kesehatan Ruangan' },
+
+
         // Stats
         'total_assets': { en: 'Total Assets', id: 'Total Aset' },
         'active_labs': { en: 'Active Labs', id: 'Lab Aktif' },

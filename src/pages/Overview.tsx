@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import type { ComponentType } from 'react';
+import { useState, type ComponentType } from 'react';
 import {
     LayoutDashboard,
     AlertTriangle,
@@ -8,12 +8,8 @@ import {
     Download,
 } from 'lucide-react';
 import {
-    PieChart,
-    Pie,
-    Cell,
     ResponsiveContainer,
     Tooltip,
-    Legend,
     AreaChart,
     Area,
     XAxis,
@@ -23,8 +19,8 @@ import {
 import { useInventory } from '../context/InventoryContext';
 import { useLanguage } from '../context/LanguageContext';
 import { usePortal } from '../context/PortalContext';
-
-const COLORS = ['#10B981', '#F59E0B', '#EF4444'];
+import { useServiceRequests } from '../context/ServiceRequestContext';
+import { X } from 'lucide-react';
 
 interface StatCardProps {
     label: string;
@@ -32,13 +28,20 @@ interface StatCardProps {
     icon: ComponentType<{ size?: number; className?: string }>;
     color: 'blue' | 'emerald' | 'amber' | 'red';
     subtext: string;
+    onClick?: () => void;
 }
 
 const Overview = () => {
     const { stats, recentLogs, rooms } = useInventory();
+    const { requests } = useServiceRequests();
     const { t } = useLanguage();
     const { portalType } = usePortal();
     const navigate = useNavigate();
+
+    const [activeModal, setActiveModal] = useState<'rooms' | 'assets' | 'pending' | 'inprogress' | null>(null);
+
+    const pendingRequests = requests.filter(r => r.status === 'pending');
+    const inProgressRequests = requests.filter(r => r.status === 'accepted');
 
     const trendData = [
         { name: 'Jan', issues: 4 },
@@ -49,14 +52,14 @@ const Overview = () => {
         { name: 'Jun', issues: 8 },
     ];
 
-    const distributionData = [
-        { name: t('good'), value: stats.health.good },
-        { name: t('service'), value: stats.health.service },
-        { name: t('damaged'), value: stats.health.damaged },
-    ].filter((item) => item.value > 0);
+    // const distributionData = [
+    //     { name: t('good'), value: stats.health.good },
+    //     { name: t('service'), value: stats.health.service },
+    //     { name: t('damaged'), value: stats.health.damaged },
+    // ].filter((item) => item.value > 0);
 
-    const chartData = distributionData.length > 0 ? distributionData : [{ name: t('no_assets'), value: 1 }];
-    const chartColors = distributionData.length > 0 ? COLORS : ['#E5E7EB'];
+    // const chartData = distributionData.length > 0 ? distributionData : [{ name: t('no_assets'), value: 1 }];
+    // const chartColors = distributionData.length > 0 ? COLORS : ['#E5E7EB'];
 
     return (
         <div className="h-full flex flex-col gap-6 overflow-y-auto pr-2 pb-4 font-sans">
@@ -77,40 +80,44 @@ const Overview = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
-                    label={t('total_assets')}
-                    value={stats.totalAssets}
+                    label={portalType === 'lab' ? t('active_labs') : t('active_rooms')}
+                    value={stats.totalRooms}
                     icon={LayoutDashboard}
                     color="blue"
-                    subtext={`${stats.totalRooms} ${portalType === 'lab' ? t('active_labs') : 'Active Rooms'}`}
+                    subtext={t('total_open_rooms')}
+                    onClick={() => setActiveModal('rooms')}
                 />
                 <StatCard
-                    label={t('operational_rate')}
-                    value={`${stats.grading}%`}
+                    label={t('total_assets')}
+                    value={stats.totalAssets}
                     icon={Activity}
                     color="emerald"
-                    subtext={t('target_95')}
+                    subtext={t('items_inside_all_containers')}
+                    onClick={() => setActiveModal('assets')}
                 />
                 <StatCard
-                    label={t('active_issues')}
-                    value={stats.health.damaged}
+                    label={t('pending_issues')}
+                    value={pendingRequests.length}
                     icon={AlertTriangle}
                     color="red"
-                    subtext={t('requires_attention')}
+                    subtext={t('unseen_not_accepted')}
+                    onClick={() => setActiveModal('pending')}
                 />
                 <StatCard
-                    label={t('pending_maintenance')}
-                    value={stats.health.service}
+                    label={t('in_progress_issues')}
+                    value={inProgressRequests.length}
                     icon={Clock}
                     color="amber"
-                    subtext={t('in_progress')}
+                    subtext={t('currently_being_handled')}
+                    onClick={() => setActiveModal('inprogress')}
                 />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[28rem]">
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 flex flex-col">
+                <div className="lg:col-span-3 bg-white p-6 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 flex flex-col">
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-bold text-slate-800 text-lg">
-                            {portalType === 'lab' ? t('labs_health') : 'Rooms Health Status'}
+                            {portalType === 'lab' ? t('labs_health') : t('rooms_health')}
                         </h3>
                         <button
                             onClick={() => navigate('/dashboard/rooms')}
@@ -119,14 +126,15 @@ const Overview = () => {
                             {t('view_all')}
                         </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pr-1">
                         {rooms.map((room) => (
                             <MiniRoomCard key={room.id} room={room} t={t} />
                         ))}
                     </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 flex flex-col">
+                {/* Asset Condition Card Hidden */}
+                {/* <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 flex flex-col">
                     <h3 className="font-bold text-slate-800 text-lg mb-3">{t('asset_condition')}</h3>
                     <div className="flex-1 min-h-0">
                         <ResponsiveContainer width="100%" height="100%">
@@ -149,7 +157,7 @@ const Overview = () => {
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
-                </div>
+                </div> */}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -184,13 +192,12 @@ const Overview = () => {
                                     className="flex gap-3 items-start p-3 hover:bg-slate-50 rounded-lg transition-colors border-l-2 border-transparent hover:border-[#000080]"
                                 >
                                     <div
-                                        className={`mt-1 min-w-8 h-8 rounded-full flex items-center justify-center ${
-                                            logItem.log.action.includes('Reported')
-                                                ? 'bg-red-100 text-red-600'
-                                                : logItem.log.action.includes('Completed')
-                                                  ? 'bg-emerald-100 text-emerald-600'
-                                                  : 'bg-blue-100 text-[#000080]'
-                                        }`}
+                                        className={`mt-1 min-w-8 h-8 rounded-full flex items-center justify-center ${logItem.log.action.includes('Reported')
+                                            ? 'bg-red-100 text-red-600'
+                                            : logItem.log.action.includes('Completed')
+                                                ? 'bg-emerald-100 text-emerald-600'
+                                                : 'bg-blue-100 text-[#000080]'
+                                            }`}
                                     >
                                         <Activity size={14} />
                                     </div>
@@ -208,33 +215,185 @@ const Overview = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Modal Popups for Stat Cards */}
+            {activeModal && (
+                <div className="fixed inset-0 z-50 flex justify-center pt-[15vh] px-4">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setActiveModal(null)} />
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[75vh] flex flex-col overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-white">
+                            <h3 className="text-xl font-bold text-[#000080]">
+                                {activeModal === 'rooms' && (portalType === 'lab' ? t('active_labs') : t('active_rooms'))}
+                                {activeModal === 'assets' && t('total_assets')}
+                                {activeModal === 'pending' && t('pending_issues')}
+                                {activeModal === 'inprogress' && t('in_progress_issues')}
+                            </h3>
+                            <button
+                                onClick={() => setActiveModal(null)}
+                                className="p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-full transition-colors"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-0 overflow-auto flex-1 bg-slate-50">
+                            {activeModal === 'rooms' && (
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-[#000080]/5 text-slate-700 font-semibold sticky top-0 backdrop-blur-md">
+                                        <tr>
+                                            <th className="px-6 py-4">Nama Ruangan</th>
+                                            <th className="px-6 py-4">Tipe / Kategori</th>
+                                            <th className="px-6 py-4 text-right">Kapasitas</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {rooms.map(room => (
+                                            <tr key={room.id} className="hover:bg-white transition-colors">
+                                                <td className="px-6 py-4 font-medium text-slate-800">{room.name}</td>
+                                                <td className="px-6 py-4 text-slate-600 capitalize">{(room.customType || room.type).replace('_', ' ')} / {room.category}</td>
+                                                <td className="px-6 py-4 text-slate-600 text-right">{room.capacity}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+
+                            {activeModal === 'assets' && (
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-[#000080]/5 text-slate-700 font-semibold sticky top-0 backdrop-blur-md">
+                                        <tr>
+                                            <th className="px-6 py-4">Nama Aset</th>
+                                            <th className="px-6 py-4">Lokasi (Ruang - Wadah)</th>
+                                            <th className="px-6 py-4 text-center">Kondisi</th>
+                                            <th className="px-6 py-4 text-center">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {rooms.flatMap(room =>
+                                            room.containers?.flatMap(container =>
+                                                container.items?.map(item => (
+                                                    <tr key={item.id} className="hover:bg-white transition-colors">
+                                                        <td className="px-6 py-4 font-medium text-slate-800">{item.name}</td>
+                                                        <td className="px-6 py-4 text-slate-600">{room.name} — {container.name}</td>
+                                                        <td className="px-6 py-4 text-center capitalize">
+                                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${item.condition === 'good' ? 'bg-emerald-100 text-emerald-700' :
+                                                                item.condition === 'service' ? 'bg-amber-100 text-amber-700' :
+                                                                    'bg-red-100 text-red-700'
+                                                                }`}>
+                                                                {item.condition || 'good'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center capitalize">
+                                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${item.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
+                                                                item.status === 'in_use' ? 'bg-blue-100 text-blue-700' :
+                                                                    'bg-slate-100 text-slate-700'
+                                                                }`}>
+                                                                {item.status || 'available'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )
+                                        )}
+                                    </tbody>
+                                </table>
+                            )}
+
+                            {activeModal === 'pending' && (
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-[#000080]/5 text-slate-700 font-semibold sticky top-0 backdrop-blur-md">
+                                        <tr>
+                                            <th className="px-6 py-4">Aset</th>
+                                            <th className="px-6 py-4">Ruangan</th>
+                                            <th className="px-6 py-4">Deskripsi</th>
+                                            <th className="px-6 py-4">Pelapor</th>
+                                            <th className="px-6 py-4">Tanggal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {pendingRequests.length === 0 && (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-10 text-center text-slate-500">Tidak ada masalah menunggu.</td>
+                                            </tr>
+                                        )}
+                                        {pendingRequests.map(req => (
+                                            <tr key={req.id} className="hover:bg-white transition-colors">
+                                                <td className="px-6 py-4 font-medium text-slate-800">{req.componentName}</td>
+                                                <td className="px-6 py-4 text-slate-600">{req.roomName || req.roomId}</td>
+                                                <td className="px-6 py-4 text-slate-600 max-w-xs truncate" title={req.description}>{req.description}</td>
+                                                <td className="px-6 py-4 text-slate-600">{req.requesterName || 'Sistem'}</td>
+                                                <td className="px-6 py-4 text-slate-500">{new Date(req.requestDate).toLocaleDateString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+
+                            {activeModal === 'inprogress' && (
+                                <table className="w-full text-left text-sm whitespace-nowrap">
+                                    <thead className="bg-[#000080]/5 text-slate-700 font-semibold sticky top-0 backdrop-blur-md">
+                                        <tr>
+                                            <th className="px-6 py-4">Aset</th>
+                                            <th className="px-6 py-4">Ruangan</th>
+                                            <th className="px-6 py-4">Deskripsi</th>
+                                            <th className="px-6 py-4">Pelapor</th>
+                                            <th className="px-6 py-4">Tanggal Permohonan</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {inProgressRequests.length === 0 && (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-10 text-center text-slate-500">Tidak ada masalah diproses.</td>
+                                            </tr>
+                                        )}
+                                        {inProgressRequests.map(req => (
+                                            <tr key={req.id} className="hover:bg-white transition-colors">
+                                                <td className="px-6 py-4 font-medium text-slate-800">{req.componentName}</td>
+                                                <td className="px-6 py-4 text-slate-600">{req.roomName || req.roomId}</td>
+                                                <td className="px-6 py-4 text-slate-600 max-w-xs truncate" title={req.description}>{req.description}</td>
+                                                <td className="px-6 py-4 text-slate-600">{req.requesterName || 'Sistem'}</td>
+                                                <td className="px-6 py-4 text-slate-500">{new Date(req.requestDate).toLocaleDateString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
-const StatCard = ({ label, value, icon: Icon, color, subtext }: StatCardProps) => {
+const StatCard = ({ label, value, icon: Icon, color, subtext, onClick }: StatCardProps) => {
     const colorStyles = {
-        blue: 'bg-blue-50 text-[#000080]',
-        emerald: 'bg-emerald-50 text-emerald-600',
-        amber: 'bg-amber-50 text-amber-600',
-        red: 'bg-red-50 text-red-600',
+        blue: 'bg-blue-400/20 text-blue-100',
+        emerald: 'bg-emerald-400/20 text-emerald-300',
+        amber: 'bg-amber-400/20 text-amber-300',
+        red: 'bg-red-400/20 text-red-300',
     };
 
     return (
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 flex flex-col justify-between h-32 relative overflow-hidden group hover:shadow-lg transition-shadow">
+        <div
+            onClick={onClick}
+            className={`bg-[#000080] p-5 rounded-2xl border border-[#000060] shadow-md shadow-blue-900/20 flex flex-col justify-between h-32 relative overflow-hidden group hover:shadow-lg hover:shadow-blue-900/40 transition-all ${onClick ? 'cursor-pointer transform hover:-translate-y-1' : ''}`}
+        >
             <div className="flex justify-between items-start z-10">
                 <div>
-                    <p className="text-sm font-bold text-slate-500 mb-1 uppercase tracking-wide">{label}</p>
-                    <h4 className="text-3xl font-black text-slate-900 tracking-tight">{value}</h4>
+                    <p className="text-sm font-bold text-blue-200 mb-1 uppercase tracking-wide">{label}</p>
+                    <h4 className="text-3xl font-black text-white tracking-tight">{value}</h4>
                 </div>
                 <div className={`p-2 rounded-lg ${colorStyles[color]}`}>
                     <Icon size={20} />
                 </div>
             </div>
-            <p className={`text-xs font-semibold z-10 ${color === 'red' ? 'text-red-500' : 'text-slate-400'}`}>
+            <p className={`text-xs font-semibold z-10 ${color === 'red' ? 'text-red-300' : 'text-blue-200'}`}>
                 {subtext}
             </p>
-            <Icon size={80} className="absolute -bottom-4 -right-4 text-slate-100 opacity-40 group-hover:scale-110 transition-transform" />
+            <Icon size={80} className="absolute -bottom-4 -right-4 text-white opacity-5 group-hover:scale-110 transition-transform" />
         </div>
     );
 };

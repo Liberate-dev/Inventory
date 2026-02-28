@@ -176,107 +176,111 @@ const ServiceRequests = () => {
             </div>
 
             {/* List */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex-1 overflow-hidden flex flex-col">
-                <div className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    <div className="col-span-3">{t('col_component')}</div>
-                    <div className="col-span-3">{t('col_issue')}</div>
-                    <div className="col-span-2">{t('col_requester')}</div>
-                    <div className="col-span-2">{t('col_date')}</div>
-                    <div className="col-span-2">{t('col_status')}</div>
-                </div>
-                <div className="overflow-y-auto flex-1">
-                    {filteredRequests.length > 0 ? (
-                        filteredRequests.map(req => {
-                            const roomLabel = req.roomName || getRoom(req.roomId)?.name || req.roomId || 'Unknown Room';
-                            const requesterLabel = req.requesterName || 'Unknown';
-
-                            return (
-                            <div key={req.id} className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 items-center hover:bg-gray-50 transition-colors">
-                                <div className="col-span-3">
-                                    <div
-                                        onClick={() => handleItemClick(req)}
-                                        className="cursor-pointer group"
-                                    >
-                                        <div className="font-bold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
-                                            {req.componentName}
-                                            <Search size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-400" />
-                                        </div>
-                                        <div className="text-xs text-gray-500 flex flex-col gap-0.5 mt-0.5 group-hover:text-gray-600">
-                                            <span>{roomLabel} - {req.stationName}</span>
-                                            {(req.componentSku || req.componentCategory) && (
-                                                <span className="text-indigo-600 font-mono text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded w-fit group-hover:bg-indigo-100 transition-colors">
-                                                    {req.componentSku ? `${req.componentSku}` : ''}
-                                                    {req.componentSku && req.componentCategory ? ' - ' : ''}
-                                                    {req.componentCategory}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="col-span-3">
-                                    <p className="text-sm text-gray-600 line-clamp-2" title={req.description}>{req.description}</p>
-                                </div>
-                                <div className="col-span-2">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">
-                                            {requesterLabel.charAt(0)}
-                                        </div>
-                                        <span className="text-sm font-medium text-gray-700 truncate">{requesterLabel}</span>
-                                    </div>
-                                </div>
-                                <div className="col-span-2 text-xs text-gray-500">
-                                    {new Date(req.requestDate).toLocaleDateString()}
-                                    <div className="text-[10px] text-gray-400">{new Date(req.requestDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                                </div>
-                                <div className="col-span-2 flex items-center justify-between gap-2">
-                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(req.status)} whitespace-nowrap`}>
-                                        {req.status === 'pending' && <Clock size={12} />}
-                                        {req.status === 'accepted' && <CheckCircle size={12} />}
-                                        {req.status === 'denied' && <XCircle size={12} />}
-                                        {req.status === 'completed' && <CheckCircle size={12} />}
-                                        <span className="capitalize">{t(`status_${req.status}` as any)}</span>
-                                    </span>
-
-                                    {/* Actions moved to same column to save space */}
-                                    <div className="flex gap-1">
-                                        {req.status === 'pending' && (
-                                            <>
-                                                <button
-                                                    onClick={() => { void handleAccept(req.id); }}
-                                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded shadow-sm border border-emerald-100 bg-white"
-                                                    title="Accept"
-                                                >
-                                                    <CheckCircle size={16} />
-                                                </button>
-                                                <button
-                                                    onClick={() => { setSelectedRequest(req); setIsRejectModalOpen(true); }}
-                                                    className="p-1.5 text-rose-600 hover:bg-rose-50 rounded shadow-sm border border-rose-100 bg-white"
-                                                    title="Deny"
-                                                >
-                                                    <XCircle size={16} />
-                                                </button>
-                                            </>
-                                        )}
-                                        {req.status === 'accepted' && (
-                                            <button
-                                                onClick={() => { setSelectedRequest(req); setIsCompleteModalOpen(true); }}
-                                                className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded shadow-sm border border-indigo-100 bg-white"
-                                                title="Mark Complete"
-                                            >
-                                                <CheckCircle size={16} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                            );
-                        })
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-12">
-                            <Clock size={48} className="mb-4 opacity-20" />
-                            <p>{t('no_requests')}</p>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex-1 flex flex-col overflow-hidden">
+                <div className="overflow-x-auto flex-1 flex flex-col">
+                    <div className="min-w-[900px] flex flex-col flex-1">
+                        <div className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider sticky top-0 z-10">
+                            <div className="col-span-3">{t('col_component')}</div>
+                            <div className="col-span-3">{t('col_issue')}</div>
+                            <div className="col-span-2">{t('col_requester')}</div>
+                            <div className="col-span-2">{t('col_date')}</div>
+                            <div className="col-span-2">{t('col_status')}</div>
                         </div>
-                    )}
+                        <div className="overflow-y-auto flex-1">
+                            {filteredRequests.length > 0 ? (
+                                filteredRequests.map(req => {
+                                    const roomLabel = req.roomName || getRoom(req.roomId)?.name || req.roomId || 'Unknown Room';
+                                    const requesterLabel = req.requesterName || 'Unknown';
+
+                                    return (
+                                        <div key={req.id} className="grid grid-cols-12 gap-4 p-4 border-b border-gray-100 items-center hover:bg-gray-50 transition-colors">
+                                            <div className="col-span-3">
+                                                <div
+                                                    onClick={() => handleItemClick(req)}
+                                                    className="cursor-pointer group"
+                                                >
+                                                    <div className="font-bold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                                                        {req.componentName}
+                                                        <Search size={12} className="opacity-0 group-hover:opacity-100 transition-opacity text-indigo-400" />
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 flex flex-col gap-0.5 mt-0.5 group-hover:text-gray-600">
+                                                        <span>{roomLabel} - {req.stationName}</span>
+                                                        {(req.componentSku || req.componentCategory) && (
+                                                            <span className="text-indigo-600 font-mono text-[10px] bg-indigo-50 px-1.5 py-0.5 rounded w-fit group-hover:bg-indigo-100 transition-colors">
+                                                                {req.componentSku ? `${req.componentSku}` : ''}
+                                                                {req.componentSku && req.componentCategory ? ' - ' : ''}
+                                                                {req.componentCategory}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="col-span-3">
+                                                <p className="text-sm text-gray-600 line-clamp-2" title={req.description}>{req.description}</p>
+                                            </div>
+                                            <div className="col-span-2">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600">
+                                                        {requesterLabel.charAt(0)}
+                                                    </div>
+                                                    <span className="text-sm font-medium text-gray-700 truncate">{requesterLabel}</span>
+                                                </div>
+                                            </div>
+                                            <div className="col-span-2 text-xs text-gray-500">
+                                                {new Date(req.requestDate).toLocaleDateString()}
+                                                <div className="text-[10px] text-gray-400">{new Date(req.requestDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                            </div>
+                                            <div className="col-span-2 flex items-center justify-between gap-2">
+                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${getStatusColor(req.status)} whitespace-nowrap`}>
+                                                    {req.status === 'pending' && <Clock size={12} />}
+                                                    {req.status === 'accepted' && <CheckCircle size={12} />}
+                                                    {req.status === 'denied' && <XCircle size={12} />}
+                                                    {req.status === 'completed' && <CheckCircle size={12} />}
+                                                    <span className="capitalize">{t(`status_${req.status}` as any)}</span>
+                                                </span>
+
+                                                {/* Actions moved to same column to save space */}
+                                                <div className="flex gap-1">
+                                                    {req.status === 'pending' && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => { void handleAccept(req.id); }}
+                                                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded shadow-sm border border-emerald-100 bg-white"
+                                                                title="Accept"
+                                                            >
+                                                                <CheckCircle size={16} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => { setSelectedRequest(req); setIsRejectModalOpen(true); }}
+                                                                className="p-1.5 text-rose-600 hover:bg-rose-50 rounded shadow-sm border border-rose-100 bg-white"
+                                                                title="Deny"
+                                                            >
+                                                                <XCircle size={16} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {req.status === 'accepted' && (
+                                                        <button
+                                                            onClick={() => { setSelectedRequest(req); setIsCompleteModalOpen(true); }}
+                                                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded shadow-sm border border-indigo-100 bg-white"
+                                                            title="Mark Complete"
+                                                        >
+                                                            <CheckCircle size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-12">
+                                    <Clock size={48} className="mb-4 opacity-20" />
+                                    <p>{t('no_requests')}</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 

@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { ArrowRightLeft, ClipboardList, CheckCircle, Search, Calendar, User as UserIcon, AlertCircle, Plus, CheckSquare, Square, X, Clock, ArrowRight } from 'lucide-react';
+import { ArrowRightLeft, ClipboardList, CheckCircle, Search, Calendar, User as UserIcon, AlertCircle, Plus, CheckSquare, Square, X, Clock, ArrowRight, FileDown, History } from 'lucide-react';
 import type { Item, ComponentCondition, ComponentStatus, Room, Container, ItemLog } from '../../types';
 import VerificationModal from '../../components/VerificationModal';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
     if (typeof rawDetails === 'string') {
@@ -35,6 +37,7 @@ export default function OperationsPage() {
     // Verification State
     const [isVerificationOpen, setIsVerificationOpen] = useState(false);
     const [pendingAction, setPendingAction] = useState<'transfer' | 'usage' | null>(null);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
     // Filter Logic for Modal
     const allItems: { item: Item; room: Room; container: Container }[] = [];
@@ -295,6 +298,143 @@ export default function OperationsPage() {
         }
     };
 
+    // --- Export PDF Logic ---
+    const handleExportPDF = () => {
+        const doc = new jsPDF('landscape', 'mm', 'a4');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+        // Header
+        doc.setFontSize(18);
+        doc.setFont('helvetica', 'bold');
+        doc.text('LAPORAN OPERASIONAL', pageWidth / 2, 18, { align: 'center' });
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        doc.text('SMPK SANTA MARIA 2 MALANG — Portal Inventory', pageWidth / 2, 25, { align: 'center' });
+        doc.setFontSize(9);
+        doc.setTextColor(120);
+        doc.text(`Dicetak: ${dateStr}, ${timeStr}`, pageWidth / 2, 31, { align: 'center' });
+        doc.setTextColor(0);
+
+        // Separator Line
+        doc.setDrawColor(0, 0, 128);
+        doc.setLineWidth(0.5);
+        doc.line(14, 34, pageWidth - 14, 34);
+
+        let startY = 40;
+
+        // Collect all operations logs
+        const allLogs: { item: Item; room: Room; container: Container; log: ItemLog }[] = [];
+        rooms.forEach(room => {
+            room.containers?.forEach(container => {
+                container.items?.forEach(item => {
+                    item.logs?.forEach(log => {
+                        if (['TRANSFER', 'CHECK_OUT', 'RETURNED'].includes(log.action)) {
+                            allLogs.push({ item, room, container, log });
+                        }
+                    });
+                });
+            });
+        });
+
+        // Sort by date descending
+        allLogs.sort((a, b) => new Date(b.log.date).getTime() - new Date(a.log.date).getTime());
+
+        const transferLogs = allLogs.filter(l => l.log.action === 'TRANSFER');
+        const usageLogs = allLogs.filter(l => l.log.action === 'CHECK_OUT' || l.log.action === 'RETURNED');
+
+        // --- TRANSFER TABLE ---
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Riwayat Transfer Aset', 14, startY);
+        startY += 2;
+
+        if (transferLogs.length > 0) {
+            autoTable(doc, {
+                startY: startY,
+                head: [['No', 'Tanggal', 'Nama Aset', 'Dari', 'Ke', 'Pemindah', 'Penerima', 'Kondisi', 'Status']],
+                body: transferLogs.map((entry, idx) => {
+                    const d = parseLogDetails(entry.log.details);
+                    return [
+                        String(idx + 1),
+                        new Date(entry.log.date).toLocaleDateString('id-ID'),
+                        entry.item.name,
+                        String(d.from ?? '-'),
+                        String(d.to ?? '-'),
+                        String(d.mover ?? '-'),
+                        String(d.receiver ?? '-'),
+                        String(d.condition ?? '-'),
+                        String(d.verificationStatus ?? '-').toUpperCase(),
+                    ];
+                }),
+                styles: { fontSize: 8, cellPadding: 2 },
+                headStyles: { fillColor: [0, 0, 128], textColor: 255, fontStyle: 'bold' },
+                alternateRowStyles: { fillColor: [245, 247, 250] },
+                margin: { left: 14, right: 14 },
+            });
+            startY = (doc as any).lastAutoTable.finalY + 10;
+        } else {
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'italic');
+            doc.text('Belum ada riwayat transfer.', 14, startY + 6);
+            startY += 14;
+        }
+
+        // --- USAGE TABLE ---
+        // Check if we need a new page
+        if (startY > doc.internal.pageSize.getHeight() - 40) {
+            doc.addPage();
+            startY = 18;
+        }
+
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Riwayat Penggunaan Aset', 14, startY);
+        startY += 2;
+
+        if (usageLogs.length > 0) {
+            autoTable(doc, {
+                startY: startY,
+                head: [['No', 'Tanggal', 'Aksi', 'Nama Aset', 'Ruangan', 'Peminjam', 'Keperluan', 'Kondisi']],
+                body: usageLogs.map((entry, idx) => {
+                    const d = parseLogDetails(entry.log.details);
+                    return [
+                        String(idx + 1),
+                        new Date(entry.log.date).toLocaleDateString('id-ID'),
+                        entry.log.action === 'CHECK_OUT' ? 'Pinjam' : 'Kembali',
+                        entry.item.name,
+                        entry.room.name,
+                        String(d.borrower ?? '-'),
+                        String(d.purpose ?? '-'),
+                        String(d.condition ?? '-'),
+                    ];
+                }),
+                styles: { fontSize: 8, cellPadding: 2 },
+                headStyles: { fillColor: [0, 0, 128], textColor: 255, fontStyle: 'bold' },
+                alternateRowStyles: { fillColor: [245, 247, 250] },
+                margin: { left: 14, right: 14 },
+            });
+        } else {
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'italic');
+            doc.text('Belum ada riwayat penggunaan.', 14, startY + 6);
+        }
+
+        // Footer on all pages
+        const totalPages = doc.getNumberOfPages();
+        for (let i = 1; i <= totalPages; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text(`Halaman ${i} dari ${totalPages}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
+            doc.text('Portal Inventory — SMPK Santa Maria 2 Malang', 14, doc.internal.pageSize.getHeight() - 8);
+        }
+
+        doc.save(`Laporan_Operasional_${now.toISOString().slice(0, 10)}.pdf`);
+    };
+
     return (
         <div className="max-w-7xl mx-auto space-y-8">
 
@@ -307,6 +447,30 @@ export default function OperationsPage() {
                     </div>
                 </div>
             )}
+
+            {/* Page Header with Export Button */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">Operasional</h2>
+                    <p className="text-slate-500 text-sm">Transfer aset, pencatatan penggunaan, dan verifikasi.</p>
+                </div>
+                <div className="flex gap-3">
+                    <button
+                        onClick={() => setIsHistoryOpen(true)}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold shadow-sm hover:bg-slate-50 transition-all text-sm"
+                    >
+                        <History size={18} />
+                        Riwayat Operasional
+                    </button>
+                    <button
+                        onClick={handleExportPDF}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#000080] text-white rounded-xl font-bold shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-all text-sm"
+                    >
+                        <FileDown size={18} />
+                        Export PDF
+                    </button>
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Col: Operation Form */}
@@ -623,7 +787,8 @@ export default function OperationsPage() {
                     </div>
                 </div>
 
-                <div className="space-y-6">
+                {/* Right Col: Recent Activity */}
+                <div className="lg:col-span-1 space-y-6">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sticky top-6">
                         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
                             <ClipboardList size={18} className="text-indigo-500" /> Recent Activity
@@ -637,7 +802,11 @@ export default function OperationsPage() {
                         }} />
 
                         <PendingVerifications />
-                        <RecentOpsList />
+
+                        <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-center">
+                            <Clock size={32} className="mx-auto text-slate-300 mb-3" />
+                            <p className="text-sm text-slate-500 font-medium">Buka <b className="text-slate-700">Riwayat Operasional</b> untuk melihat detail histori dan filter data secara lengkap.</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -735,6 +904,8 @@ export default function OperationsPage() {
                 title="Verifikasi Transaksi"
                 description="Masukkan nama lengkap, nomor HP, atau email untuk memverifikasi transaksi ini."
             />
+
+            <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
         </div>
     );
 }
@@ -887,138 +1058,179 @@ function PendingVerifications() {
     );
 }
 
-// Helper Component for Recent Ops
-function RecentOpsList() {
+// ---------------------------------------------------------
+// HistoryModal Component
+// ---------------------------------------------------------
+function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
     const { recentLogs } = useInventory();
-    const [filter, setFilter] = useState<'TRANSFER' | 'USAGE'>('TRANSFER');
-    const [selectedLog, setSelectedLog] = useState<{ entry: any, details: any } | null>(null);
+    const [filterType, setFilterType] = useState<'ALL' | 'TRANSFER' | 'CHECK_OUT' | 'RETURNED'>('ALL');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedLog, setSelectedLog] = useState<{ entry: (typeof recentLogs)[0]; details: Record<string, unknown> } | null>(null);
 
     const filteredLogs = recentLogs.filter(entry => {
-        if (filter === 'TRANSFER') return entry.log.action === 'TRANSFER';
-        if (filter === 'USAGE') return entry.log.action === 'CHECK_OUT' || entry.log.action === 'RETURNED';
+        if (filterType !== 'ALL' && entry.log.action !== filterType) return false;
+        if (searchTerm) {
+            const s = searchTerm.toLowerCase();
+            const d = parseLogDetails(entry.log.details);
+            if (
+                !entry.itemName.toLowerCase().includes(s) &&
+                !String(d.mover ?? '').toLowerCase().includes(s) &&
+                !String(d.borrower ?? '').toLowerCase().includes(s)
+            ) return false;
+        }
         return true;
     });
 
+    if (!isOpen) return null;
+
     return (
-        <>
-            <div className="flex gap-2 mb-4 border-b border-slate-100">
-                <button
-                    onClick={() => setFilter('TRANSFER')}
-                    className={`pb-2 text-sm font-bold transition-colors border-b-2 ${filter === 'TRANSFER' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-                >
-                    Transfers
-                </button>
-                <button
-                    onClick={() => setFilter('USAGE')}
-                    className={`pb-2 text-sm font-bold transition-colors border-b-2 ${filter === 'USAGE' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
-                >
-                    Usage History
-                </button>
-            </div>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
 
-            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                {filteredLogs.length > 0 ? (
-                    filteredLogs.map((entry, idx) => {
-                        const details = parseLogDetails(entry.log.details);
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg"><History size={20} /></div>
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Riwayat Operasional</h3>
+                            <p className="text-xs text-slate-500">Log peminjaman, pengembalian, dan transfer aset.</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+                </div>
 
-                        return (
-                            <div
-                                key={idx}
-                                onClick={() => setSelectedLog({ entry, details })}
-                                className="flex gap-3 items-start border-b border-slate-50 last:border-0 pb-3 last:pb-0 cursor-pointer hover:bg-slate-50 p-2 rounded-lg transition-colors group"
+                {/* Filters */}
+                <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between">
+                    <div className="flex gap-2">
+                        {(['ALL', 'TRANSFER', 'CHECK_OUT', 'RETURNED'] as const).map(type => (
+                            <button
+                                key={type}
+                                onClick={() => setFilterType(type)}
+                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors border ${filterType === type
+                                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                    }`}
                             >
-                                <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 group-hover:scale-125 transition-transform ${entry.log.action === 'TRANSFER' ? 'bg-amber-400' :
-                                    entry.log.action === 'CHECK_OUT' ? 'bg-indigo-400' :
-                                        entry.log.action === 'RETURNED' ? 'bg-emerald-400' : 'bg-slate-300'
-                                    }`} />
-                                <div>
-                                    <div className="text-xs font-bold text-slate-700 group-hover:text-indigo-600 transition-colors">{entry.itemName}</div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-0.5">{entry.log.action.replace('_', ' ')}</div>
-                                    <div className="text-xs text-slate-400 leading-tight">
-                                        {new Date(entry.log.date).toLocaleDateString()}
+                                {type === 'ALL' ? 'Semua' : type === 'CHECK_OUT' ? 'Peminjaman' : type === 'RETURNED' ? 'Pengembalian' : 'Transfer'}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="relative">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                            type="text" placeholder="Cari item, nama..." value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
+                        />
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                    <div className="space-y-3">
+                        {filteredLogs.length > 0 ? filteredLogs.map((entry, idx) => {
+                            const details = parseLogDetails(entry.log.details);
+                            return (
+                                <div key={idx} onClick={() => setSelectedLog({ entry, details })} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all group">
+                                    <div className={`w-3 h-3 rounded-full shrink-0 ${entry.log.action === 'TRANSFER' ? 'bg-amber-400' :
+                                        entry.log.action === 'CHECK_OUT' ? 'bg-indigo-400' :
+                                            entry.log.action === 'RETURNED' ? 'bg-emerald-400' : 'bg-slate-300'
+                                        }`} />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-bold text-slate-800 flex items-center gap-2">
+                                            <span className="truncate">{entry.itemName}</span>
+                                            <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-semibold uppercase shrink-0">
+                                                {entry.log.action.replace('_', ' ')}
+                                            </span>
+                                        </div>
+                                        <div className="text-sm text-slate-500 mt-1 line-clamp-1">
+                                            {entry.log.action === 'TRANSFER' && `Dari ${String(details.from || '-')} ke ${String(details.to || '-')}`}
+                                            {entry.log.action === 'CHECK_OUT' && `Peminjam: ${String(details.borrower || '-')} \u2014 ${String(details.purpose || '-')}`}
+                                            {entry.log.action === 'RETURNED' && `Dikembalikan oleh: ${String(details.returner || '-')} (Kondisi: ${String(details.condition || '-')})`}
+                                        </div>
                                     </div>
+                                    <div className="text-right shrink-0">
+                                        <div className="text-xs font-bold text-slate-600">{new Date(entry.log.date).toLocaleDateString()}</div>
+                                        <div className="text-xs text-slate-400">{new Date(entry.log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                    </div>
+                                    <ArrowRight size={20} className="text-slate-300 group-hover:text-indigo-500 ml-2 transition-colors shrink-0" />
                                 </div>
+                            );
+                        }) : (
+                            <div className="text-center py-12">
+                                <History className="mx-auto text-slate-300 mb-3" size={48} />
+                                <p className="text-slate-500 font-medium">Belum ada riwayat operasi yang cocok dengan filter.</p>
                             </div>
-                        );
-                    })
-                ) : (
-                    <p className="text-sm text-slate-400 italic py-4 text-center">No {filter.toLowerCase()} history.</p>
-                )}
+                        )}
+                    </div>
+                </div>
             </div>
 
-            {/* Detail Modal */}
+            {/* Detail Popup */}
             {selectedLog && (
-                <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setSelectedLog(null)}>
-                    <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setSelectedLog(null)}>
+                    <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-between items-start mb-4">
                             <div>
-                                <h3 className="font-bold text-lg text-slate-800">Activity Details</h3>
-                                <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">{selectedLog.entry.log.action}</p>
+                                <h3 className="font-bold text-lg text-slate-800">Detail Aktivitas</h3>
+                                <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">{selectedLog.entry.log.action.replace('_', ' ')}</p>
                             </div>
-                            <button onClick={() => setSelectedLog(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
-                                <X size={20} />
-                            </button>
+                            <button onClick={() => setSelectedLog(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={20} /></button>
                         </div>
-
                         <div className="space-y-4">
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                 <div className="text-xs text-slate-400 font-bold uppercase mb-1">Item</div>
                                 <div className="font-bold text-slate-700">{selectedLog.entry.itemName}</div>
                             </div>
-
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <div className="text-xs text-slate-400 font-bold uppercase mb-1">Date</div>
+                                    <div className="text-xs text-slate-400 font-bold uppercase mb-1">Tanggal</div>
                                     <div className="text-sm font-medium text-slate-600">{new Date(selectedLog.entry.log.date).toLocaleDateString()}</div>
                                 </div>
-
                                 {selectedLog.entry.log.action === 'TRANSFER' && (
                                     <>
                                         <div className="col-span-2">
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Movement</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Perpindahan</div>
                                             <div className="text-sm text-slate-600 p-2 bg-slate-50 rounded-lg">
-                                                <div className="flex justify-between"><span>From:</span> <span className="font-medium">{selectedLog.details.from}</span></div>
-                                                <div className="flex justify-between mt-1"><span>To:</span> <span className="font-medium">{selectedLog.details.to}</span></div>
+                                                <div className="flex justify-between border-b border-slate-200 pb-1 mb-1"><span>Dari:</span> <span className="font-bold">{String(selectedLog.details.from)}</span></div>
+                                                <div className="flex justify-between"><span>Ke:</span> <span className="font-bold">{String(selectedLog.details.to)}</span></div>
                                             </div>
                                         </div>
                                         <div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Mover</div>
-                                            <div className="text-sm font-medium text-slate-600">{selectedLog.details.mover}</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Pemindah</div>
+                                            <div className="text-sm font-bold text-slate-600">{String(selectedLog.details.mover || '-')}</div>
                                         </div>
                                         <div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Receiver</div>
-                                            <div className="text-sm font-medium text-slate-600">{selectedLog.details.receiver || '-'}</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Penerima</div>
+                                            <div className="text-sm font-bold text-slate-600">{String(selectedLog.details.receiver || '-')}</div>
                                         </div>
                                         <div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Status</div>
-                                            <div className={`text-xs font-bold px-2 py-1 rounded inline-block ${selectedLog.details.verificationStatus === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                {selectedLog.details.verificationStatus?.toUpperCase() || 'N/A'}
+                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Status Verifikasi</div>
+                                            <div className={`text-[10px] font-bold px-2 py-1 rounded inline-block ${selectedLog.details.verificationStatus === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                                }`}>
+                                                {String(selectedLog.details.verificationStatus || 'UNVERIFIED').toString().toUpperCase()}
                                             </div>
                                         </div>
                                     </>
                                 )}
-
                                 {selectedLog.entry.log.action === 'CHECK_OUT' && (
                                     <>
                                         <div className="col-span-2">
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Borrower</div>
-                                            <div className="text-sm font-medium text-slate-600">{selectedLog.details.borrower}</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Peminjam</div>
+                                            <div className="text-sm font-medium text-slate-600">{String(selectedLog.details.borrower)}</div>
                                         </div>
                                         <div className="col-span-2">
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Purpose</div>
-                                            <div className="text-sm font-medium text-slate-600 italic">"{selectedLog.details.purpose}"</div>
+                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Keperluan</div>
+                                            <div className="text-sm font-medium text-slate-600 italic">"{String(selectedLog.details.purpose)}"</div>
                                         </div>
                                     </>
                                 )}
-
                                 {selectedLog.entry.log.action === 'RETURNED' && (
                                     <div className="col-span-2">
-                                        <div className="text-xs text-slate-400 font-bold uppercase mb-1">Return Condition</div>
+                                        <div className="text-xs text-slate-400 font-bold uppercase mb-1">Kondisi Kembali</div>
                                         <div className={`text-sm font-bold capitalize ${selectedLog.details.condition === 'good' ? 'text-emerald-600' :
                                             selectedLog.details.condition === 'broken' ? 'text-rose-600' : 'text-amber-600'
-                                            }`}>
-                                            {selectedLog.details.condition}
-                                        </div>
+                                            }`}>{String(selectedLog.details.condition || '-')}</div>
                                     </div>
                                 )}
                             </div>
@@ -1026,6 +1238,6 @@ function RecentOpsList() {
                     </div>
                 </div>
             )}
-        </>
+        </div>
     );
 }

@@ -74,6 +74,10 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
     const [items, setItems] = useState<Item[]>(container.items || []);
     const [isFormOpen, setIsFormOpen] = useState(false);
 
+    // Title editing state
+    const [isEditingTitle, setIsEditingTitle] = useState(false);
+    const [editTitle, setEditTitle] = useState(container.name);
+
     // Form State managed by custom hook
     const { formData, isEditing, editingId, updateField, resetForm, loadItem, generateSku, parameterActions } = useItemForm();
 
@@ -113,6 +117,15 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
     // Parameter helpers are now provided by the hook
     const { add, remove, update } = parameterActions;
 
+    const handleSaveTitle = () => {
+        if (editTitle.trim() && editTitle !== container.name) {
+            onUpdate({ ...container, name: editTitle.trim() });
+        } else {
+            setEditTitle(container.name);
+        }
+        setIsEditingTitle(false);
+    };
+
     const handleSave = () => {
         if (!formData.name) return;
 
@@ -125,9 +138,9 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
             type: formData.category || 'Standard', // Maps to type for legacy support
             category: formData.category,
             isConsumable: formData.isConsumable,
-            quantity: formData.quantity,
+            quantity: formData.quantity === '' ? 1 : formData.quantity,
             unit: formData.unit,
-            minStock: formData.minStock,
+            minStock: formData.minStock === '' ? 0 : formData.minStock,
             parameters: formData.parameters,
         };
 
@@ -220,7 +233,7 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
             setIsFormOpen(false); // Close the edit form too
         } catch (error) {
             console.error('Failed to submit service request:', error);
-            showToast('Gagal mengirim laporan ke backend.', 'error');
+            showToast(error instanceof Error ? error.message : 'Gagal mengirim laporan ke backend.', 'error');
         }
     };
 
@@ -244,7 +257,25 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                             <Box size={24} />
                         </div>
                         <div>
-                            <h3 className="text-xl font-bold text-gray-900">{container.name}</h3>
+                            {isEditingTitle ? (
+                                <input
+                                    type="text"
+                                    value={editTitle}
+                                    onChange={(e) => setEditTitle(e.target.value)}
+                                    onBlur={handleSaveTitle}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle()}
+                                    autoFocus
+                                    className="text-xl font-bold text-gray-900 bg-white border border-indigo-300 rounded px-2 py-0.5 outline-none focus:ring-2 focus:ring-indigo-500 w-auto min-w-[200px]"
+                                />
+                            ) : (
+                                <h3
+                                    className="text-xl font-bold text-gray-900 cursor-text hover:text-indigo-600 hover:underline decoration-dashed decoration-indigo-300 underline-offset-4"
+                                    onClick={() => setIsEditingTitle(true)}
+                                    title="Click to edit name"
+                                >
+                                    {container.name}
+                                </h3>
+                            )}
                             <p className="text-sm text-gray-500 capitalize">{container.type} • {items.length} {t('items_count')}</p>
                         </div>
                     </div>
@@ -386,10 +417,15 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                                                         {formData.isConsumable ? t('current_stock') : t('quantity')}
                                                     </label>
                                                     <input
-                                                        type="number"
-                                                        min="1"
+                                                        type="text"
+                                                        inputMode="numeric"
+                                                        pattern="[0-9]*"
+                                                        placeholder="e.g. 1"
                                                         value={formData.quantity}
-                                                        onChange={(e) => updateField('quantity', parseInt(e.target.value) || 0)}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value.replace(/\D/g, '');
+                                                            updateField('quantity', val ? parseInt(val, 10) : 0);
+                                                        }}
                                                         className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono font-bold"
                                                     />
                                                 </div>
@@ -408,10 +444,15 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                                                     <div className="animate-in fade-in slide-in-from-left-4">
                                                         <label className="block text-xs font-bold text-amber-600 uppercase tracking-wider mb-1.5">{t('min_stock')}</label>
                                                         <input
-                                                            type="number"
-                                                            min="0"
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            pattern="[0-9]*"
+                                                            placeholder="e.g. 0"
                                                             value={formData.minStock}
-                                                            onChange={(e) => updateField('minStock', parseInt(e.target.value) || 0)}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value.replace(/\D/g, '');
+                                                                updateField('minStock', val ? parseInt(val, 10) : 0);
+                                                            }}
                                                             className="w-full px-4 py-2.5 border border-amber-300 bg-amber-50 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none font-mono font-bold text-amber-800"
                                                         />
                                                     </div>

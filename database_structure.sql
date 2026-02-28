@@ -19,7 +19,7 @@ CREATE TABLE `users` (
   `phone` varchar(20) DEFAULT NULL,
   `role` enum('admin','kepala_lab','guru','kepala_sekolah','sarpras') NOT NULL,
   `lab_scope` enum('computer','biology','physics','all') DEFAULT NULL,
-  `avatar_url` varchar(255) DEFAULT NULL,
+  `avatar_url` MEDIUMTEXT DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `username` (`username`),

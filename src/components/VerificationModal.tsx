@@ -3,6 +3,9 @@ import React, { useState } from 'react';
 import { X, Check, ShieldCheck } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const USERS_ENDPOINT = `${API_BASE_URL}/users/users.php`;
+
 interface VerificationModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -13,17 +16,53 @@ interface VerificationModalProps {
 
 const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, onClose, onVerify, title, description }) => {
     const [verifierInfo, setVerifierInfo] = useState('');
+    const [users, setUsers] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
     const { t } = useLanguage();
+
+    React.useEffect(() => {
+        if (isOpen && users.length === 0) {
+            setIsLoading(true);
+            fetch(USERS_ENDPOINT)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success' && data.users) {
+                        setUsers(data.users);
+                    }
+                })
+                .catch(err => console.error("Failed to fetch users", err))
+                .finally(() => setIsLoading(false));
+        }
+    }, [isOpen]);
+
+    const [error, setError] = useState('');
 
     if (!isOpen) return null;
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (verifierInfo.trim()) {
-            onVerify(verifierInfo);
-            setVerifierInfo('');
-            onClose();
+        setError('');
+
+        if (!verifierInfo.trim()) return;
+
+        // If users are loaded, validate against the DB
+        if (users.length > 0) {
+            const searchTerm = verifierInfo.toLowerCase().trim();
+            const matchedUser = users.find(u =>
+                (u.name && u.name.toLowerCase() === searchTerm) ||
+                (u.email && u.email.toLowerCase() === searchTerm) ||
+                (u.phone && u.phone.toLowerCase() === searchTerm)
+            );
+
+            if (!matchedUser) {
+                setError(t('verification_error') || 'User tidak ditemukan di database. Pastikan Nama, Email, atau No HP benar.');
+                return;
+            }
         }
+
+        onVerify(verifierInfo);
+        setVerifierInfo('');
+        onClose();
     };
 
     return (
@@ -44,17 +83,30 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ isOpen, onClose, 
 
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-slate-700 mb-2">
-                            {t('verification_label') || "Verifikasi Identitas (Nama / No. HP / Email)"}
+                            {t('verification_label') || "Verifikasi Identitas"}
                         </label>
                         <input
                             type="text"
                             value={verifierInfo}
-                            onChange={(e) => setVerifierInfo(e.target.value)}
-                            className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] focus:border-[#000080] transition-all outline-none"
+                            onChange={(e) => {
+                                setVerifierInfo(e.target.value);
+                                setError('');
+                            }}
+                            className={`w-full px-4 py-3 border rounded-xl focus:ring-2 transition-all outline-none ${error ? 'border-red-400 focus:ring-red-500 focus:border-red-500 bg-red-50' : 'border-slate-200 focus:ring-[#000080] focus:border-[#000080]'}`}
                             placeholder={t('verification_placeholder') || "Contoh: Budi / 08123456789"}
                             autoFocus
                             required
                         />
+                        {error && (
+                            <p className="mt-2 text-sm text-red-500 flex items-center gap-1">
+                                {error}
+                            </p>
+                        )}
+                        {isLoading && (
+                            <p className="mt-2 text-xs text-slate-500 animate-pulse">
+                                Memuat database user...
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex gap-3 justify-end">

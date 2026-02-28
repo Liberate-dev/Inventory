@@ -6,9 +6,9 @@ interface ItemFormData {
     sku: string;
     category: string;
     isConsumable: boolean;
-    quantity: number;
+    quantity: number | '';
     unit: string;
-    minStock: number;
+    minStock: number | '';
     parameters: { label: string; value: string }[];
     condition: ComponentCondition;
 }
@@ -21,9 +21,9 @@ export const useItemForm = (initialItem?: Item | null) => {
         sku: '',
         category: '',
         isConsumable: false,
-        quantity: 1,
+        quantity: '',
         unit: 'Pcs',
-        minStock: 0,
+        minStock: '',
         parameters: [],
         condition: 'good'
     };

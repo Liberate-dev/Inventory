@@ -18,6 +18,8 @@ import type { Room } from '../types';
 import { usePortal } from '../context/PortalContext';
 import { useInventory } from '../context/InventoryContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { useAccessMatrix } from '../context/AccessMatrixContext';
 
 const getIcon = (type: Room['type']) => {
     switch (type) {
@@ -65,11 +67,13 @@ const RoomList = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentRoom, setCurrentRoom] = useState<Partial<Room>>({});
     const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
+    const { user: currentUser } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
+    const canEdit = currentUser ? canEditFeature('rooms', currentUser.role) : false;
 
     const handleAddRoom = () => {
         const defaultType = portalType === 'lab' ? 'computer' : 'classroom';
-        const defaultCapacity = portalType === 'lab' ? 20 : 50;
-        setCurrentRoom({ type: defaultType, capacity: defaultCapacity });
+        setCurrentRoom({ type: defaultType, capacity: '' as any });
         setIsModalOpen(true);
     };
 
@@ -117,7 +121,7 @@ const RoomList = () => {
                     category: portalType,
                     type: roomData.type || (portalType === 'lab' ? 'computer' : 'classroom'),
                     customType: roomData.customType,
-                    capacity: roomData.capacity || 0,
+                    capacity: typeof roomData.capacity === 'number' ? roomData.capacity : 0,
                     containers: []
                 });
             }
@@ -133,16 +137,18 @@ const RoomList = () => {
         <div>
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-2xl font-extrabold text-[#000080] tracking-tight">{t('manage_rooms_title')}</h3>
-                <button
-                    onClick={handleAddRoom}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-xl hover:bg-[#000060] transition-colors shadow-md shadow-blue-900/10 font-semibold"
-                >
-                    <Plus size={18} /> {t('add_room')}
-                </button>
+                {canEdit && (
+                    <button
+                        onClick={handleAddRoom}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-xl hover:bg-[#000060] transition-colors shadow-md shadow-blue-900/10 font-semibold"
+                    >
+                        <Plus size={18} /> {t('add_room')}
+                    </button>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {rooms.map((room) => {
+                {rooms.filter(room => !currentUser?.labScope || currentUser.labScope === 'all' || room.type === currentUser.labScope).map((room) => {
                     const Icon = getIcon(room.type);
                     const colorClass = getColor(room.type);
 
@@ -165,53 +171,54 @@ const RoomList = () => {
                             <h4 className="text-lg font-bold text-slate-900 mb-1">{room.name}</h4>
                             <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-sm">
                                 <span
-                                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                                        room.type === 'computer'
-                                            ? 'bg-blue-100 text-[#000080]'
-                                            : room.type === 'physics'
-                                              ? 'bg-purple-100 text-purple-700'
-                                              : room.type === 'biology'
+                                    className={`px-2 py-1 rounded text-xs font-semibold ${room.type === 'computer'
+                                        ? 'bg-blue-100 text-[#000080]'
+                                        : room.type === 'physics'
+                                            ? 'bg-purple-100 text-purple-700'
+                                            : room.type === 'biology'
                                                 ? 'bg-green-100 text-green-700'
                                                 : room.type === 'classroom'
-                                                  ? 'bg-yellow-100 text-yellow-700'
-                                                  : room.type === 'office'
-                                                    ? 'bg-slate-100 text-slate-700'
-                                                    : room.type === 'warehouse'
-                                                      ? 'bg-amber-100 text-amber-700'
-                                                      : 'bg-orange-100 text-orange-700'
-                                    }`}
+                                                    ? 'bg-yellow-100 text-yellow-700'
+                                                    : room.type === 'office'
+                                                        ? 'bg-slate-100 text-slate-700'
+                                                        : room.type === 'warehouse'
+                                                            ? 'bg-amber-100 text-amber-700'
+                                                            : 'bg-orange-100 text-orange-700'
+                                        }`}
                                 >
                                     {room.type === 'computer'
                                         ? t('lab_computer')
                                         : room.type === 'physics'
-                                          ? t('lab_physics')
-                                          : room.type === 'biology'
-                                            ? t('lab_biology')
-                                            : room.type === 'classroom'
-                                              ? 'Classroom'
-                                              : room.type === 'office'
-                                                ? 'Office'
-                                                : room.type === 'warehouse'
-                                                  ? 'Warehouse'
-                                                  : room.customType || t('lab_other')}
+                                            ? t('lab_physics')
+                                            : room.type === 'biology'
+                                                ? t('lab_biology')
+                                                : room.type === 'classroom'
+                                                    ? 'Classroom'
+                                                    : room.type === 'office'
+                                                        ? 'Office'
+                                                        : room.type === 'warehouse'
+                                                            ? 'Warehouse'
+                                                            : room.customType || t('lab_other')}
                                 </span>
 
-                                <div className="flex gap-1">
-                                    <button
-                                        onClick={(e) => handleEditRoom(e, room)}
-                                        className="p-1.5 text-slate-400 hover:text-[#000080] hover:bg-blue-50 rounded transition-colors"
-                                        title={t('edit_room')}
-                                    >
-                                        <Edit size={16} />
-                                    </button>
-                                    <button
-                                        onClick={(e) => handleDeleteRoom(e, room.id)}
-                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                                        title={t('delete_room')}
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
+                                {canEdit && (
+                                    <div className="flex gap-1">
+                                        <button
+                                            onClick={(e) => handleEditRoom(e, room)}
+                                            className="p-1.5 text-slate-400 hover:text-[#000080] hover:bg-blue-50 rounded transition-colors"
+                                            title={t('edit_room')}
+                                        >
+                                            <Edit size={16} />
+                                        </button>
+                                        <button
+                                            onClick={(e) => handleDeleteRoom(e, room.id)}
+                                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                                            title={t('delete_room')}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     );
@@ -293,9 +300,15 @@ const RoomList = () => {
                             <div>
                                 <label className="block text-sm font-semibold text-slate-700 mb-1">{t('capacity')}</label>
                                 <input
-                                    type="number"
-                                    value={currentRoom.capacity || 20}
-                                    onChange={(e) => setCurrentRoom({ ...currentRoom, capacity: parseInt(e.target.value, 10) })}
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    placeholder="e.g. 20"
+                                    value={currentRoom.capacity ?? ''}
+                                    onChange={(e) => {
+                                        const val = e.target.value.replace(/\D/g, '');
+                                        setCurrentRoom({ ...currentRoom, capacity: val ? parseInt(val, 10) : '' as any });
+                                    }}
                                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
                                 />
                             </div>

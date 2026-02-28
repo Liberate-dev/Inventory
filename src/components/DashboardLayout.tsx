@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Map, LogOut, AlertTriangle, User, FileText, Shield, ClipboardList, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Map, LogOut, AlertTriangle, User, FileText, Shield, ClipboardList, Menu, X, ArrowLeft } from 'lucide-react';
 import { NavLink, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { usePortal } from '../context/PortalContext';
+import { useAccessMatrix } from '../context/AccessMatrixContext';
+import type { FeatureKey } from '../context/AccessMatrixContext';
 import logo from '../assets/logo.png';
 
 const DashboardLayout = () => {
@@ -18,27 +20,30 @@ const DashboardLayout = () => {
         navigate('/login');
     };
 
-    const navItems = [
-        { icon: LayoutDashboard, label: t('overview'), path: '/dashboard', roles: ['all'] },
-        { icon: Map, label: portalType === 'lab' ? t('lab_rooms') : 'Rooms', path: '/dashboard/rooms', roles: ['admin', 'kepala_lab', 'guru'] },
-        { icon: AlertTriangle, label: t('service_requests'), path: '/dashboard/service-requests', roles: ['admin', 'sarpras', 'kepala_lab', 'guru'] },
-        { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', roles: ['admin', 'kepala_lab', 'guru'] },
-        { icon: FileText, label: t('monthly_report'), path: '/dashboard/reports', roles: ['admin', 'kepala_sekolah', 'sarpras', 'kepala_lab'] },
-        { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', roles: ['admin'] },
-        { icon: User, label: t('my_profile'), path: '/dashboard/profile', roles: ['all'] },
+    const { canSee } = useAccessMatrix();
+
+    // Feature key → nav item mapping
+    const allNavItems = [
+        { icon: LayoutDashboard, label: t('dashboard'), path: '/dashboard', feature: 'dashboard' as FeatureKey },
+        { icon: Map, label: portalType === 'lab' ? t('lab_rooms') : 'Ruangan', path: '/dashboard/rooms', feature: 'rooms' as FeatureKey },
+        { icon: AlertTriangle, label: t('service_requests'), path: '/dashboard/service-requests', feature: 'service_requests' as FeatureKey },
+        { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', feature: 'operations' as FeatureKey },
+        { icon: FileText, label: t('monthly_report'), path: '/dashboard/reports', feature: 'reports' as FeatureKey },
+        { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', feature: 'user_management' as FeatureKey },
+        { icon: User, label: t('my_profile'), path: '/dashboard/profile', feature: null },
     ];
 
-    const filteredNavItems = navItems.filter(item =>
-        item.roles.includes('all') || (user && item.roles.includes(user.role))
+    const filteredNavItems = allNavItems.filter(item =>
+        item.feature === null || (user != null && canSee(item.feature, user.role))
     );
 
     // Determine current page title
-    const activeItem = navItems.find(item => {
+    const activeItem = allNavItems.find(item => {
         if (item.path === '/dashboard') return location.pathname === '/dashboard';
         return location.pathname.startsWith(item.path);
     });
 
-    const pageTitle = activeItem ? activeItem.label : 'Dashboard';
+    const pageTitle = activeItem ? activeItem.label : t('dashboard');
 
     // Update document title
     useEffect(() => {
@@ -65,11 +70,12 @@ const DashboardLayout = () => {
             )}
 
             <aside
-                className={`fixed left-0 top-0 h-screen w-64 bg-white border-r border-[#E2E8F0] flex flex-col z-50 transition-transform duration-300 print:hidden lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                className={`fixed left-0 top-0 h-screen w-64 bg-slate-50 flex flex-col z-50 transition-transform duration-300 print:hidden lg:translate-x-0 border-r border-slate-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
             >
-                <div className="p-6 border-b border-[#F1F5F9]">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                {/* Section 1: Logo & Name (Matches Main Page Color) */}
+                <div className="p-6 bg-slate-50 border-b border-slate-200">
+                    <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center gap-4">
                             <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#000080] shadow-md shadow-blue-900/10">
                                 <img
                                     src={logo}
@@ -83,8 +89,8 @@ const DashboardLayout = () => {
                                 <span className="hidden text-white font-bold text-sm">P</span>
                             </div>
                             <div>
-                                <h1 className="text-sm font-extrabold text-[#000080] tracking-tight">INVENTORY</h1>
-                                <p className="text-[10px] font-bold text-slate-500">SMPK SANTA MARIA 2</p>
+                                <h1 className="text-sm font-extrabold text-[#000080] tracking-widest uppercase">INVENTORY</h1>
+                                <p className="text-[10px] font-medium text-slate-500">SMPK SANTA MARIA 2</p>
                             </div>
                         </div>
 
@@ -98,7 +104,8 @@ const DashboardLayout = () => {
                     </div>
                 </div>
 
-                <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+                {/* Section 2: Main Navigation */}
+                <nav className="flex-1 flex flex-col justify-start px-8 py-10 space-y-8 overflow-y-auto bg-slate-50">
                     {filteredNavItems.map((item) => (
                         <NavLink
                             key={item.path}
@@ -106,9 +113,9 @@ const DashboardLayout = () => {
                             end={item.path === '/dashboard'}
                             onClick={() => setMobileOpen(false)}
                             className={({ isActive }) =>
-                                `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border border-transparent ${isActive
-                                    ? 'bg-[#000080] text-white shadow-md shadow-blue-900/10'
-                                    : 'text-slate-600 hover:text-[#000080] hover:bg-slate-50 hover:border-slate-200'
+                                `flex items-center gap-5 text-[15px] font-bold transition-all duration-300 w-full ${isActive
+                                    ? 'text-[#000080] drop-shadow-[0_0_12px_rgba(0,0,128,0.5)] scale-105'
+                                    : 'text-slate-500 hover:text-[#000080] hover:drop-shadow-[0_0_10px_rgba(0,0,128,0.3)]'
                                 }`
                             }
                         >
@@ -118,31 +125,53 @@ const DashboardLayout = () => {
                     ))}
                 </nav>
 
-                <div className="p-4 border-t border-[#F1F5F9] bg-slate-50/50">
+                {/* Section 3: Profile & Logout Actions (Matches Main Page Color) */}
+                <div className="p-6 bg-slate-50 border-t border-slate-200">
                     <button
                         onClick={() => navigate('/dashboard/profile')}
-                        className="w-full flex items-center gap-3 mb-3 px-2 text-left"
+                        className="w-full flex items-center gap-4 mb-6 px-2 text-left group"
                     >
-                        <div className="w-10 h-10 rounded-full bg-[#000080] flex items-center justify-center text-sm font-bold text-white shadow-sm">
-                            {user?.name?.charAt(0)?.toUpperCase() || '?'}
-                        </div>
+                        {user?.avatar && user.avatar.length > 100 ? (
+                            <img
+                                src={user.avatar}
+                                alt={user.name}
+                                className="w-10 h-10 rounded-full object-cover shadow-sm shadow-blue-900/10 border-2 border-slate-200 group-hover:border-indigo-400 transition-colors"
+                            />
+                        ) : (
+                            <div className="w-10 h-10 rounded-full bg-[#000080] flex items-center justify-center text-sm font-bold text-white shadow-sm shadow-blue-900/10 group-hover:bg-[#000060] transition-colors">
+                                {user?.name?.charAt(0)?.toUpperCase() || '?'}
+                            </div>
+                        )}
                         <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-800 truncate">{user?.name}</p>
-                            <p className="text-[10px] font-medium text-slate-500 uppercase">{user?.role || 'USER'}</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{user?.role || 'USER'}</p>
                         </div>
                     </button>
-                    <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
-                    >
-                        <LogOut size={18} />
-                        <span>Logout</span>
-                    </button>
+                    <div className="flex flex-col gap-2">
+                        <button
+                            onClick={() => {
+                                navigate('/');
+                                setMobileOpen(false);
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-[#000080] hover:border-blue-200 rounded-xl transition-colors shadow-sm text-xs font-semibold"
+                        >
+                            <ArrowLeft size={16} />
+                            <span>Kembali Portal</span>
+                        </button>
+                        <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 bg-white border border-red-100 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 rounded-xl transition-colors shadow-sm text-xs font-semibold"
+                        >
+                            <LogOut size={16} />
+                            <span>Keluar</span>
+                        </button>
+                    </div>
                 </div>
             </aside>
 
-            <main className="flex-1 p-6 md:p-8 lg:ml-64 h-screen overflow-hidden flex flex-col print:ml-0 print:p-0 print:h-auto print:overflow-visible">
-                <header className="mb-6 md:mb-8 pt-12 lg:pt-0 flex flex-col md:flex-row justify-between items-start md:items-center flex-shrink-0 print:hidden gap-4">
+            <main className="flex-1 lg:ml-64 h-screen overflow-hidden flex flex-col print:ml-0 print:h-auto print:overflow-visible bg-slate-50">
+                {/* Header with Bottom Border Separator */}
+                <header className="p-6 md:p-8 border-b border-slate-200 bg-slate-50 pt-16 lg:pt-8 flex flex-col md:flex-row justify-between items-start md:items-center flex-shrink-0 print:hidden gap-4">
                     <div>
                         <h1 className="text-2xl font-extrabold text-[#000080] tracking-tight leading-tight">
                             PORTAL INVENTORY
@@ -155,7 +184,7 @@ const DashboardLayout = () => {
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-1 flex flex-col">
+                <div className="flex-1 p-6 md:p-8 overflow-y-auto overflow-x-hidden p-1 flex flex-col bg-slate-50">
                     <Outlet />
                 </div>
             </main>

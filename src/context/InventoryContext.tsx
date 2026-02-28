@@ -322,10 +322,14 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
 
     // Optimistic room update + backend synchronization.
     const updateRoom = async (updatedRoom: Room) => {
+        // Optimistic update
         setRooms(prev => prev.map(r => r.id === updatedRoom.id ? updatedRoom : r));
 
         try {
+            // Push changes to backend
             await persistRoomState(updatedRoom);
+            // Fetch real state from DB so temporary item IDs are replaced by DB IDs
+            await fetchRooms(false);
         } catch (err) {
             console.error(err);
             setError(err instanceof Error ? err.message : 'Gagal sinkronisasi perubahan room.');
