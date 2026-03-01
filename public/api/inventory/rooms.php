@@ -56,10 +56,10 @@ function normalizeRoomRows(PDO $db): array
 
     $logsByItemId = [];
     foreach ($logs as $log) {
-        $itemId = (string)$log['item_id'];
-        $log['id'] = (string)$log['id'];
+        $itemId = (string) $log['item_id'];
+        $log['id'] = (string) $log['id'];
         $log['item_id'] = $itemId;
-        $log['user_id'] = $log['user_id'] !== null ? (string)$log['user_id'] : null;
+        $log['user_id'] = $log['user_id'] !== null ? (string) $log['user_id'] : null;
 
         // Keep object payloads as JSON strings for consumers that parse them,
         // but normalize JSON string scalars back to plain text for UI display.
@@ -75,15 +75,15 @@ function normalizeRoomRows(PDO $db): array
 
     $itemsByContainerId = [];
     foreach ($items as $item) {
-        $itemId = (string)$item['id'];
-        $containerId = (string)$item['container_id'];
+        $itemId = (string) $item['id'];
+        $containerId = (string) $item['container_id'];
 
         $item['id'] = $itemId;
         $item['condition'] = $item['condition'] ?? 'good';
         $item['status'] = $item['status'] ?? 'available';
-        $item['quantity'] = (int)$item['quantity'];
-        $item['isConsumable'] = (bool)$item['is_consumable'];
-        $item['minStock'] = (int)$item['min_stock'];
+        $item['quantity'] = (int) $item['quantity'];
+        $item['isConsumable'] = (bool) $item['is_consumable'];
+        $item['minStock'] = (int) $item['min_stock'];
         $item['image_layer'] = $item['image_url'];
         $item['parameters'] = json_decode($item['parameters'] ?? '[]', true);
         if (!is_array($item['parameters'])) {
@@ -101,14 +101,14 @@ function normalizeRoomRows(PDO $db): array
 
     $containersByRoomId = [];
     foreach ($containers as $container) {
-        $containerId = (string)$container['id'];
-        $roomId = (string)$container['room_id'];
+        $containerId = (string) $container['id'];
+        $roomId = (string) $container['room_id'];
 
         $container['id'] = $containerId;
         $container['room_id'] = $roomId;
         $container['position'] = [
-            'x' => (int)$container['position_x'],
-            'y' => (int)$container['position_y']
+            'x' => (int) $container['position_x'],
+            'y' => (int) $container['position_y']
         ];
         $container['items'] = $itemsByContainerId[$containerId] ?? [];
 
@@ -119,9 +119,9 @@ function normalizeRoomRows(PDO $db): array
     }
 
     foreach ($rooms as &$room) {
-        $roomId = (string)$room['id'];
+        $roomId = (string) $room['id'];
         $room['id'] = $roomId;
-        $room['capacity'] = (int)$room['capacity'];
+        $room['capacity'] = (int) $room['capacity'];
         $room['customType'] = $room['custom_type'];
         $room['containers'] = $containersByRoomId[$roomId] ?? [];
         unset($room['custom_type']);
@@ -137,7 +137,7 @@ function validateId($value): ?int
         return null;
     }
 
-    $intValue = (int)$value;
+    $intValue = (int) $value;
     if ($intValue <= 0) {
         return null;
     }
@@ -158,7 +158,7 @@ function normalizeLogDate($value): string
     }
 
     if (is_int($value) || is_float($value)) {
-        $timestamp = (int)$value;
+        $timestamp = (int) $value;
         if ($timestamp > 0) {
             return date('Y-m-d H:i:s', $timestamp);
         }
@@ -178,7 +178,7 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
     $existingRows = $selectExistingStmt->fetchAll(PDO::FETCH_ASSOC);
     $existingItemIds = [];
     foreach ($existingRows as $existingRow) {
-        $existingItemIds[(int)$existingRow['id']] = true;
+        $existingItemIds[(int) $existingRow['id']] = true;
     }
 
     $updateItemStmt = $db->prepare(
@@ -234,28 +234,31 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
     $keptItemIds = [];
 
     foreach ($items as $item) {
-        if (!is_array($item) || !isset($item['name']) || trim((string)$item['name']) === '') {
+        if (!is_array($item) || !isset($item['name']) || trim((string) $item['name']) === '') {
             continue;
         }
 
-        $name = trim((string)$item['name']);
-        $type = trim((string)($item['type'] ?? 'General'));
-        $condition = (string)($item['condition'] ?? 'good');
-        $status = (string)($item['status'] ?? 'available');
+        $name = trim((string) $item['name']);
+        $type = trim((string) ($item['type'] ?? 'General'));
+        $condition = (string) ($item['condition'] ?? 'good');
+        $status = (string) ($item['status'] ?? 'available');
         if (!in_array($condition, $allowedConditions, true)) {
             $condition = 'good';
         }
         if (!in_array($status, $allowedStatuses, true)) {
-            $status = $status === 'service' ? 'maintenance' : 'available';
+            // Frontend might mistakenly pass condition 'service' as status.
+            // If it's literally 'service', map to 'maintenance'. Otherwise default to 'available'.
+            // Actually, transferring just preserves the old item properties including its DB status.
+            $status = ($status === 'service' || $status === 'maintenance') ? 'maintenance' : 'available';
         }
-        $specs = isset($item['specs']) ? (string)$item['specs'] : '';
-        $imageUrl = isset($item['image_layer']) ? (string)$item['image_layer'] : (isset($item['image_url']) ? (string)$item['image_url'] : null);
-        $sku = isset($item['sku']) ? (string)$item['sku'] : null;
-        $category = isset($item['category']) ? (string)$item['category'] : null;
+        $specs = isset($item['specs']) ? (string) $item['specs'] : '';
+        $imageUrl = isset($item['image_layer']) ? (string) $item['image_layer'] : (isset($item['image_url']) ? (string) $item['image_url'] : null);
+        $sku = isset($item['sku']) ? (string) $item['sku'] : null;
+        $category = isset($item['category']) ? (string) $item['category'] : null;
         $isConsumable = !empty($item['isConsumable']) ? 1 : (!empty($item['is_consumable']) ? 1 : 0);
-        $quantity = isset($item['quantity']) ? (int)$item['quantity'] : 1;
-        $unit = isset($item['unit']) ? (string)$item['unit'] : null;
-        $minStock = isset($item['minStock']) ? (int)$item['minStock'] : (isset($item['min_stock']) ? (int)$item['min_stock'] : 0);
+        $quantity = isset($item['quantity']) ? (int) $item['quantity'] : 1;
+        $unit = isset($item['unit']) ? (string) $item['unit'] : null;
+        $minStock = isset($item['minStock']) ? (int) $item['minStock'] : (isset($item['min_stock']) ? (int) $item['min_stock'] : 0);
         $parameters = isset($item['parameters']) && is_array($item['parameters']) ? json_encode($item['parameters']) : json_encode([]);
         $itemId = validateId($item['id'] ?? null);
         $hasExistingItem = $itemId !== null && isset($existingItemIds[$itemId]);
@@ -326,7 +329,7 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
             $insertItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
             $insertItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
             $insertItemStmt->execute();
-            $newItemId = (int)$db->lastInsertId();
+            $newItemId = (int) $db->lastInsertId();
         }
 
         $keptItemIds[] = $newItemId;
@@ -334,7 +337,7 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
         if (!array_key_exists('logs', $item) || !is_array($item['logs'])) {
             $countLogsStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
             $countLogsStmt->execute();
-            $existingLogCount = (int)$countLogsStmt->fetchColumn();
+            $existingLogCount = (int) $countLogsStmt->fetchColumn();
             if ($existingLogCount === 0) {
                 $insertDefaultLog($newItemId);
             }
@@ -350,7 +353,7 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
                 continue;
             }
 
-            $action = (string)$log['action'];
+            $action = (string) $log['action'];
             $date = normalizeLogDate($log['date'] ?? null);
             $detailsRaw = $log['details'] ?? '';
             if (is_string($detailsRaw)) {
@@ -407,11 +410,11 @@ if ($method == 'POST') {
         }
 
         $manualId = validateId($payload['id'] ?? null);
-        $name = trim((string)$payload['name']);
-        $type = (string)$payload['type'];
-        $category = (string)$payload['category'];
-        $customType = isset($payload['customType']) ? (string)$payload['customType'] : (isset($payload['custom_type']) ? (string)$payload['custom_type'] : null);
-        $capacity = isset($payload['capacity']) ? (int)$payload['capacity'] : 0;
+        $name = trim((string) $payload['name']);
+        $type = (string) $payload['type'];
+        $category = (string) $payload['category'];
+        $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
+        $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : 0;
 
         if ($manualId !== null) {
             $stmt = $db->prepare(
@@ -425,7 +428,7 @@ if ($method == 'POST') {
             $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
             $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
             $stmt->execute();
-            respond(201, ["status" => "success", "id" => (string)$manualId, "message" => "Room created."]);
+            respond(201, ["status" => "success", "id" => (string) $manualId, "message" => "Room created."]);
         }
 
         $stmt = $db->prepare(
@@ -439,7 +442,7 @@ if ($method == 'POST') {
         $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
         $stmt->execute();
 
-        respond(201, ["status" => "success", "id" => (string)$db->lastInsertId(), "message" => "Room created."]);
+        respond(201, ["status" => "success", "id" => (string) $db->lastInsertId(), "message" => "Room created."]);
     }
 
     if ($entity === 'container') {
@@ -448,15 +451,15 @@ if ($method == 'POST') {
             respond(400, ["status" => "error", "message" => "Incomplete container payload."]);
         }
 
-        $name = trim((string)$payload['name']);
-        $type = (string)$payload['type'];
-        $status = isset($payload['status']) ? (string)$payload['status'] : 'good';
+        $name = trim((string) $payload['name']);
+        $type = (string) $payload['type'];
+        $status = isset($payload['status']) ? (string) $payload['status'] : 'good';
         if (!in_array($status, ['good', 'warning', 'error'], true)) {
             $status = 'good';
         }
         $position = $payload['position'] ?? [];
-        $positionX = isset($position['x']) ? (int)$position['x'] : 0;
-        $positionY = isset($position['y']) ? (int)$position['y'] : 0;
+        $positionX = isset($position['x']) ? (int) $position['x'] : 0;
+        $positionY = isset($position['y']) ? (int) $position['y'] : 0;
 
         $db->beginTransaction();
         try {
@@ -472,13 +475,13 @@ if ($method == 'POST') {
             $stmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
             $stmt->execute();
 
-            $containerId = (int)$db->lastInsertId();
+            $containerId = (int) $db->lastInsertId();
             if (isset($payload['items']) && is_array($payload['items'])) {
                 syncContainerItems($db, $containerId, $payload['items']);
             }
 
             $db->commit();
-            respond(201, ["status" => "success", "id" => (string)$containerId, "message" => "Container created."]);
+            respond(201, ["status" => "success", "id" => (string) $containerId, "message" => "Container created."]);
         } catch (Throwable $e) {
             if ($db->inTransaction()) {
                 $db->rollBack();
@@ -507,15 +510,15 @@ if ($method == 'POST') {
                     continue;
                 }
 
-                $name = trim((string)$container['name']);
-                $type = (string)$container['type'];
-                $status = isset($container['status']) ? (string)$container['status'] : 'good';
+                $name = trim((string) $container['name']);
+                $type = (string) $container['type'];
+                $status = isset($container['status']) ? (string) $container['status'] : 'good';
                 if (!in_array($status, ['good', 'warning', 'error'], true)) {
                     $status = 'good';
                 }
                 $position = $container['position'] ?? [];
-                $positionX = isset($position['x']) ? (int)$position['x'] : 0;
-                $positionY = isset($position['y']) ? (int)$position['y'] : 0;
+                $positionX = isset($position['x']) ? (int) $position['x'] : 0;
+                $positionY = isset($position['y']) ? (int) $position['y'] : 0;
 
                 $stmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
                 $stmt->bindParam(':name', $name, PDO::PARAM_STR);
@@ -525,8 +528,8 @@ if ($method == 'POST') {
                 $stmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
                 $stmt->execute();
 
-                $containerId = (int)$db->lastInsertId();
-                $insertedIds[] = (string)$containerId;
+                $containerId = (int) $db->lastInsertId();
+                $insertedIds[] = (string) $containerId;
 
                 if (isset($container['items']) && is_array($container['items'])) {
                     syncContainerItems($db, $containerId, $container['items']);
@@ -565,7 +568,7 @@ if ($method == 'POST') {
                 }
 
                 $positionX = $index % 4;
-                $positionY = (int)floor($index / 4);
+                $positionY = (int) floor($index / 4);
                 $updateStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
                 $updateStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
                 $updateStmt->bindParam(':id', $containerId, PDO::PARAM_INT);
@@ -593,11 +596,11 @@ if ($method == 'PUT') {
             respond(400, ["status" => "error", "message" => "Incomplete room update payload."]);
         }
 
-        $name = trim((string)$payload['name']);
-        $type = (string)$payload['type'];
-        $category = (string)$payload['category'];
-        $customType = isset($payload['customType']) ? (string)$payload['customType'] : (isset($payload['custom_type']) ? (string)$payload['custom_type'] : null);
-        $capacity = isset($payload['capacity']) ? (int)$payload['capacity'] : 0;
+        $name = trim((string) $payload['name']);
+        $type = (string) $payload['type'];
+        $category = (string) $payload['category'];
+        $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
+        $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : 0;
 
         $stmt = $db->prepare(
             "UPDATE rooms
@@ -623,15 +626,15 @@ if ($method == 'PUT') {
             respond(400, ["status" => "error", "message" => "Incomplete container update payload."]);
         }
 
-        $name = trim((string)$payload['name']);
-        $type = (string)$payload['type'];
-        $status = isset($payload['status']) ? (string)$payload['status'] : 'good';
+        $name = trim((string) $payload['name']);
+        $type = (string) $payload['type'];
+        $status = isset($payload['status']) ? (string) $payload['status'] : 'good';
         if (!in_array($status, ['good', 'warning', 'error'], true)) {
             $status = 'good';
         }
         $position = $payload['position'] ?? [];
-        $positionX = isset($position['x']) ? (int)$position['x'] : 0;
-        $positionY = isset($position['y']) ? (int)$position['y'] : 0;
+        $positionX = isset($position['x']) ? (int) $position['x'] : 0;
+        $positionY = isset($position['y']) ? (int) $position['y'] : 0;
 
         $db->beginTransaction();
         try {
@@ -669,11 +672,11 @@ if ($method == 'PUT') {
             respond(400, ["status" => "error", "message" => "Invalid room id for room-state update."]);
         }
 
-        $name = isset($payload['name']) ? trim((string)$payload['name']) : null;
-        $type = isset($payload['type']) ? (string)$payload['type'] : null;
-        $category = isset($payload['category']) ? (string)$payload['category'] : null;
-        $customType = isset($payload['customType']) ? (string)$payload['customType'] : (isset($payload['custom_type']) ? (string)$payload['custom_type'] : null);
-        $capacity = isset($payload['capacity']) ? (int)$payload['capacity'] : null;
+        $name = isset($payload['name']) ? trim((string) $payload['name']) : null;
+        $type = isset($payload['type']) ? (string) $payload['type'] : null;
+        $category = isset($payload['category']) ? (string) $payload['category'] : null;
+        $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
+        $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : null;
         $containers = isset($payload['containers']) && is_array($payload['containers']) ? $payload['containers'] : [];
 
         $db->beginTransaction();
@@ -715,15 +718,15 @@ if ($method == 'PUT') {
                 }
 
                 $containerId = validateId($container['id'] ?? null);
-                $containerName = trim((string)($container['name'] ?? ("Container " . ($index + 1))));
-                $containerType = (string)($container['type'] ?? 'table');
-                $containerStatus = (string)($container['status'] ?? 'good');
+                $containerName = trim((string) ($container['name'] ?? ("Container " . ($index + 1))));
+                $containerType = (string) ($container['type'] ?? 'table');
+                $containerStatus = (string) ($container['status'] ?? 'good');
                 if (!in_array($containerStatus, ['good', 'warning', 'error'], true)) {
                     $containerStatus = 'good';
                 }
                 $position = isset($container['position']) && is_array($container['position']) ? $container['position'] : [];
-                $positionX = isset($position['x']) ? (int)$position['x'] : ($index % 4);
-                $positionY = isset($position['y']) ? (int)$position['y'] : (int)floor($index / 4);
+                $positionX = isset($position['x']) ? (int) $position['x'] : ($index % 4);
+                $positionY = isset($position['y']) ? (int) $position['y'] : (int) floor($index / 4);
                 $items = isset($container['items']) && is_array($container['items']) ? $container['items'] : [];
 
                 if ($containerId !== null) {
@@ -754,7 +757,7 @@ if ($method == 'PUT') {
                 $insertContainerStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
                 $insertContainerStmt->execute();
 
-                $newContainerId = (int)$db->lastInsertId();
+                $newContainerId = (int) $db->lastInsertId();
                 syncContainerItems($db, $newContainerId, $items);
                 $keptContainerIds[] = $newContainerId;
             }

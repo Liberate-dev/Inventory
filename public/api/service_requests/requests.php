@@ -87,8 +87,7 @@ function fetchServiceRequests(PDO $db): array
             c.name AS station_name,
             r.id AS room_id,
             r.name AS room_name,
-            u.name AS requester_name,
-            sr.requester_name AS stored_requester_name
+            u.name AS requester_name
         FROM service_requests sr
         LEFT JOIN items i ON sr.item_id = i.id
         LEFT JOIN containers c ON i.container_id = c.id
@@ -101,9 +100,6 @@ function fetchServiceRequests(PDO $db): array
 
     return array_map(function ($row) {
         $requesterNameRaw = isset($row['requester_name']) ? trim((string) $row['requester_name']) : '';
-        if ($requesterNameRaw === '' && isset($row['stored_requester_name'])) {
-            $requesterNameRaw = trim((string) $row['stored_requester_name']);
-        }
         $requesterName = $requesterNameRaw !== ''
             ? $requesterNameRaw
             : (($row['requester_id'] ?? null) !== null ? ('User #' . (string) $row['requester_id']) : null);
@@ -145,19 +141,14 @@ if ($method === 'POST') {
     }
 
     $stmt = $db->prepare(
-        "INSERT INTO service_requests (item_id, requester_id, requester_name, description, status)
-         VALUES (:item_id, :requester_id, :requester_name, :description, 'pending')"
+        "INSERT INTO service_requests (item_id, requester_id, description, status)
+         VALUES (:item_id, :requester_id, :description, 'pending')"
     );
     $stmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
     if ($resolvedRequesterId === null) {
         $stmt->bindValue(':requester_id', null, PDO::PARAM_NULL);
     } else {
         $stmt->bindValue(':requester_id', $resolvedRequesterId, PDO::PARAM_INT);
-    }
-    if ($requesterName === null || $requesterName === '') {
-        $stmt->bindValue(':requester_name', null, PDO::PARAM_NULL);
-    } else {
-        $stmt->bindValue(':requester_name', $requesterName, PDO::PARAM_STR);
     }
     $stmt->bindParam(':description', $description, PDO::PARAM_STR);
     $stmt->execute();

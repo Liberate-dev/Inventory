@@ -23,6 +23,8 @@ const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
     return {};
 };
 
+const capitalizeFirst = (str: string) => str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+
 export default function OperationsPage() {
     const { rooms, updateRoom } = useInventory();
     const [activeTab, setActiveTab] = useState<'transfer' | 'usage'>('transfer');
@@ -150,7 +152,6 @@ export default function OperationsPage() {
 
             const updatedItem = {
                 ...currentItem,
-                condition: transferForm.conditionBefore, // Update to the stated condition before transfer (usually same)
                 logs: [newLog, ...(currentItem.logs || [])]
             };
 
@@ -188,7 +189,10 @@ export default function OperationsPage() {
         });
 
         try {
-            await Promise.all(currentRoomsState.map((roomState) => updateRoom(roomState)));
+            // Sequential update to avoid DB deadlock (SQLSTATE[40001])
+            for (const roomState of currentRoomsState) {
+                await updateRoom(roomState);
+            }
             setShowSuccess(`Successfully moved ${selectedItemIds.length} items to ${targetRoom.name}`);
             setTimeout(() => setShowSuccess(null), 3000);
             setSelectedItemIds([]);
@@ -287,7 +291,10 @@ export default function OperationsPage() {
         });
 
         try {
-            await Promise.all(currentRoomsState.map((roomState) => updateRoom(roomState)));
+            // Sequential update to avoid DB deadlock
+            for (const roomState of currentRoomsState) {
+                await updateRoom(roomState);
+            }
             setShowSuccess(`Successfully ${usageForm.actionType === 'checkout' ? 'checked out' : 'returned'} ${selectedItemIds.length} items`);
             setTimeout(() => setShowSuccess(null), 3000);
             setSelectedItemIds([]);
@@ -598,7 +605,7 @@ export default function OperationsPage() {
                                                 <div className="flex flex-wrap gap-2">
                                                     {selectedItemsData.map(({ item }) => (
                                                         <div key={item.id} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 font-medium group transition-all hover:border-red-200 hover:bg-red-50">
-                                                            {item.name}
+                                                            {item.name} - {capitalizeFirst(item.condition)}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => toggleItemSelection(item.id)}
@@ -853,7 +860,7 @@ export default function OperationsPage() {
                                                 <div className="truncate">
                                                     <div className={`font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-700'}`}>{item.name}</div>
                                                     <div className="text-xs text-gray-500 flex items-center gap-2">
-                                                        <span className="capitalize px-1.5 py-0.5 rounded bg-gray-100">{item.condition}</span>
+                                                        <span className="capitalize px-1.5 py-0.5 rounded bg-gray-100">{capitalizeFirst(item.condition)}</span>
                                                         <span className="text-gray-400">•</span>
                                                         <span>{room.name} / {container.name}</span>
                                                     </div>
@@ -1002,7 +1009,10 @@ function PendingVerifications() {
 
         if (found) {
             try {
-                await Promise.all(newRooms.map((roomState) => updateRoom(roomState)));
+                // Sequential update to avoid DB deadlock
+                for (const roomState of newRooms) {
+                    await updateRoom(roomState);
+                }
                 setVerifyingLog(null);
             } catch (error) {
                 console.error('Failed to persist verification update:', error);
