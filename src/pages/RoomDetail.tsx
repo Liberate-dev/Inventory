@@ -340,6 +340,7 @@ const RoomDetail = () => {
                         <ContainerDetailModal
                             container={selectedContainer}
                             roomId={room.id}
+                            roomName={room.name}
                             onClose={() => setSelectedContainer(null)}
                             onUpdate={handleUpdateContainer}
                         />

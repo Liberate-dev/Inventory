@@ -51,7 +51,13 @@ const ensureComponentLogs = (logs: unknown): ItemLog[] => {
         }
     }
 
-    return [createComponentLog('INITIALIZED', 'Log awal komponen dibuat otomatis.')];
+    return [];
+};
+
+const formatActionLabel = (action: string): string => {
+    if (!action) return '-';
+    const normalized = action.replace(/_/g, ' ').toLowerCase();
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 
 const sanitizeLocation = (value: unknown): string => {
@@ -89,8 +95,8 @@ const formatLogDetails = (action: string, details: unknown): string => {
     if (action === 'MAINTENANCE_ACCEPTED') return 'Permintaan maintenance diterima.';
     if (action === 'MAINTENANCE_DENIED' && data) return `Permintaan ditolak: ${String(data.reason ?? '-')}`;
     if (action === 'MAINTENANCE_COMPLETED' && data) return `Maintenance selesai (${String(data.outcome ?? '-')}).`;
-    if (typeof details === 'string') return details;
     if (data) return Object.entries(data).map(([key, value]) => `${key}: ${String(value)}`).join(' | ');
+    if (typeof details === 'string') return details;
     return String(details ?? '');
 };
 
@@ -560,12 +566,14 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                             {t('component_history')}
                                         </h5>
                                         <div className="max-h-40 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                                            {ensureComponentLogs(stationComponents[selectedComponent].logs).map((log) => (
+                                            {ensureComponentLogs(stationComponents[selectedComponent].logs)
+                                                .filter((log) => log.action !== 'INITIALIZED')
+                                                .map((log) => (
                                                 <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5">
                                                     <div className="text-[11px] text-slate-400">
                                                         {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
                                                     </div>
-                                                    <div className="text-xs font-semibold text-white mt-1">{log.action}</div>
+                                                    <div className="text-xs font-semibold text-white mt-1">{formatActionLabel(log.action)}</div>
                                                     <div className="text-xs text-slate-300 mt-1">
                                                         {formatLogDetails(log.action, log.details)}
                                                     </div>

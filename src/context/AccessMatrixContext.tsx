@@ -11,6 +11,7 @@ export type FeatureKey =
     | 'service_requests'
     | 'operations'
     | 'reports'
+    | 'print_assets'
     | 'user_management';
 
 export type AccessMatrix = Record<FeatureKey, Record<UserRole, AccessLevel>>;
@@ -22,6 +23,7 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     service_requests: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'full' },
     operations: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none' },
     reports: { admin: 'full', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full' },
+    print_assets: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view' },
     user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
 };
 
@@ -31,6 +33,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
     service_requests: 'Permintaan Layanan',
     operations: 'Operasional',
     reports: 'Laporan Bulanan',
+    print_assets: 'Cetak Label, Kartu & Kode',
     user_management: 'Manajemen Pengguna',
 };
 

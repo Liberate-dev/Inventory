@@ -5,7 +5,7 @@ import {
     AlertTriangle,
     Activity,
     Clock,
-    Download,
+    FileText,
 } from 'lucide-react';
 import {
     ResponsiveContainer,
@@ -69,11 +69,11 @@ const Overview = () => {
                     <p className="text-slate-500 font-medium">{t('dashboard_subtitle')}</p>
                 </div>
                 <div className="flex gap-3">
-                    <button className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-medium shadow-sm hover:bg-slate-50 inline-flex items-center gap-2">
-                        <Clock size={16} /> {t('last_30_days')}
-                    </button>
-                    <button className="px-4 py-2 bg-[#000080] text-white rounded-xl text-sm font-bold shadow-md shadow-blue-900/10 hover:bg-[#000060] inline-flex items-center gap-2">
-                        <Download size={16} /> {t('download_report')}
+                    <button
+                        onClick={() => navigate('/dashboard/reports')}
+                        className="px-4 py-2 bg-[#000080] text-white rounded-xl text-sm font-bold shadow-md shadow-blue-900/10 hover:bg-[#000060] inline-flex items-center gap-2"
+                    >
+                        <FileText size={16} /> {t('download_report')}
                     </button>
                 </div>
             </div>

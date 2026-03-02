@@ -83,23 +83,25 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const translations: Record<string, { en: string; id: string }> = {
-        'dashboard': { en: 'Dashboard', id: 'Dasbor' },
+        'dashboard': { en: 'Dashboard', id: 'Dashboard' },
         'overview': { en: 'Overview', id: 'Ringkasan' },
         'lab_rooms': { en: 'Lab Rooms', id: 'Ruang Lab' },
         'service_requests': { en: 'Service Requests', id: 'Permintaan Layanan' },
         'operations': { en: 'Operations', id: 'Operasional' },
         'assets': { en: 'Assets', id: 'Aset' },
         'monthly_report': { en: 'Monthly Report', id: 'Laporan Bulanan' },
+        'print_assets': { en: 'Label & Inventory Codes', id: 'Label & kode inventaris' },
+        'inventory_code_management': { en: 'Inventory Code Management', id: 'Manajemen Kode Inventaris' },
         'user_management': { en: 'User Management', id: 'Manajemen Pengguna' },
         'my_profile': { en: 'My Profile', id: 'Profil Saya' },
         'logout': { en: 'Logout', id: 'Keluar' },
         'welcome_back': { en: 'Welcome back', id: 'Selamat datang kembali' },
 
         // Dashboard Overview
-        'dashboard_title': { en: 'Dashboard Overview', id: 'Ringkasan Dasbor' },
+        'dashboard_title': { en: 'Dashboard Overview', id: 'Ringkasan Dashboard' },
         'dashboard_subtitle': { en: 'Real-time inventory monitoring and health status', id: 'Pemantauan inventaris realtime dan status kesehatan' },
         'last_30_days': { en: 'Last 30 Days', id: '30 Hari Terakhir' },
-        'download_report': { en: 'Download Report', id: 'Unduh Laporan' },
+        'download_report': { en: 'View Monthly Report', id: 'Lihat Laporan Bulanan' },
 
         // Dashboard Card Strings
         'active_rooms': { en: 'Active Rooms', id: 'Ruangan Aktif' },

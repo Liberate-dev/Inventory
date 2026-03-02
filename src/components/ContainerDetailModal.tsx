@@ -11,6 +11,7 @@ import { useItemForm } from '../hooks/useItemForm';
 interface ContainerDetailModalProps {
     container: Container;
     roomId?: string;
+    roomName?: string;
     initialItemId?: string; // Optional deep link
     onClose: () => void;
     onUpdate: (updatedContainer: Container) => void;
@@ -54,7 +55,13 @@ const ensureItemLogs = (logs: unknown): ItemLog[] => {
             return validLogs;
         }
     }
-    return [createItemLog('INITIALIZED', 'Log awal item dibuat otomatis.')];
+    return [];
+};
+
+const formatActionLabel = (action: string): string => {
+    if (!action) return '-';
+    const normalized = action.replace(/_/g, ' ').toLowerCase();
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 
 const sanitizeLocation = (value: unknown): string => {
@@ -110,16 +117,16 @@ const formatLogDetails = (action: string, details: unknown): string => {
         return `Maintenance selesai (${String(data.outcome ?? '-')}).`;
     }
 
-    if (typeof details === 'string') return details;
     if (data) {
         return Object.entries(data)
             .map(([key, value]) => `${key}: ${String(value)}`)
             .join(' | ');
     }
+    if (typeof details === 'string') return details;
     return String(details ?? '');
 };
 
-const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpdate }: ContainerDetailModalProps) => {
+const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onClose, onUpdate }: ContainerDetailModalProps) => {
     const { addRequest, requests } = useServiceRequests();
     const { user } = useAuth();
     const { t } = useLanguage();
@@ -295,7 +302,9 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
 
 
     const activeRequest = editingId ? requests.find((r: ServiceRequest) => r.componentId === editingId && r.status !== 'completed' && r.status !== 'denied') : undefined;
-    const selectedItemLogs = editingId ? (items.find((item) => item.id === editingId)?.logs ?? []) : [];
+    const selectedItemLogs = editingId
+        ? (items.find((item) => item.id === editingId)?.logs ?? []).filter((log) => log.action !== 'INITIALIZED')
+        : [];
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -427,7 +436,11 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                                                         className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm uppercase"
                                                         placeholder="INV-..."
                                                     />
-                                                    <button onClick={generateSku} className="p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200" title="Generate SKU">
+                                                    <button
+                                                        onClick={() => { void generateSku({ roomId, roomName }); }}
+                                                        className="p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200"
+                                                        title="Generate SKU"
+                                                    >
                                                         <RefreshCw size={20} />
                                                     </button>
                                                 </div>
@@ -564,7 +577,7 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                                                             <div className="text-[11px] text-slate-500">
                                                                 {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
                                                             </div>
-                                                            <div className="text-xs font-semibold text-slate-800 mt-1">{log.action}</div>
+                                                            <div className="text-xs font-semibold text-slate-800 mt-1">{formatActionLabel(log.action)}</div>
                                                             <div className="text-xs text-slate-600 mt-1">{formatLogDetails(log.action, log.details)}</div>
                                                         </div>
                                                     ))}

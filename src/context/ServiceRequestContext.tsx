@@ -9,7 +9,8 @@ interface ServiceRequestContextType {
         id: string,
         status: RequestStatus,
         rejectionReason?: string,
-        resolutionOutcome?: 'repaired' | 'broken'
+        resolutionOutcome?: 'repaired' | 'broken',
+        note?: string
     ) => Promise<void>;
     getRequestsByRoom: (roomId: string) => ServiceRequest[];
     refreshRequests: () => Promise<void>;
@@ -162,7 +163,8 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
         id: string,
         status: RequestStatus,
         rejectionReason?: string,
-        resolutionOutcome?: 'repaired' | 'broken'
+        resolutionOutcome?: 'repaired' | 'broken',
+        note?: string
     ) => {
         const response = await fetch(REQUESTS_ENDPOINT, {
             method: 'PUT',
@@ -171,7 +173,8 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
                 id,
                 status,
                 rejectionReason: status === 'denied' ? (rejectionReason ?? '') : null,
-                resolutionOutcome: status === 'completed' ? (resolutionOutcome ?? null) : null
+                resolutionOutcome: status === 'completed' ? (resolutionOutcome ?? null) : null,
+                note: typeof note === 'string' ? note.trim() : null
             })
         });
 

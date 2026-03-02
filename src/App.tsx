@@ -17,6 +17,7 @@ import UserProfile from './pages/UserProfile';
 import UserManagement from './pages/admin/UserManagement';
 import ReportPage from './pages/admin/ReportPage';
 import OperationsPage from './pages/admin/OperationsPage';
+import PrintAssetsPage from './pages/admin/PrintAssetsPage';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -56,6 +57,8 @@ const App = () => {
                     <Route path="profile" element={<UserProfile />} />
                     <Route path="admin/users" element={<UserManagement />} />
                     <Route path="reports" element={<ReportPage />} />
+                    <Route path="print-assets" element={<PrintAssetsPage />} />
+                    <Route path="inventory-codes" element={<Navigate to="/dashboard/print-assets?tab=codes" replace />} />
                     <Route path="operations" element={<OperationsPage />} />
                   </Route>
                 </Routes>

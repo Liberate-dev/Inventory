@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Map, LogOut, AlertTriangle, User, FileText, Shield, ClipboardList, Menu, X, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Map, LogOut, AlertTriangle, User, Shield, ClipboardList, Menu, X, ArrowLeft, Printer } from 'lucide-react';
 import { NavLink, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -28,7 +28,7 @@ const DashboardLayout = () => {
         { icon: Map, label: portalType === 'lab' ? t('lab_rooms') : 'Ruangan', path: '/dashboard/rooms', feature: 'rooms' as FeatureKey },
         { icon: AlertTriangle, label: t('service_requests'), path: '/dashboard/service-requests', feature: 'service_requests' as FeatureKey },
         { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', feature: 'operations' as FeatureKey },
-        { icon: FileText, label: t('monthly_report'), path: '/dashboard/reports', feature: 'reports' as FeatureKey },
+        { icon: Printer, label: t('print_assets'), path: '/dashboard/print-assets', feature: 'print_assets' as FeatureKey },
         { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', feature: 'user_management' as FeatureKey },
         { icon: User, label: t('my_profile'), path: '/dashboard/profile', feature: null },
     ];
@@ -43,7 +43,9 @@ const DashboardLayout = () => {
         return location.pathname.startsWith(item.path);
     });
 
-    const pageTitle = activeItem ? activeItem.label : t('dashboard');
+    const pageTitle = location.pathname.startsWith('/dashboard/reports')
+        ? t('monthly_report')
+        : (activeItem ? activeItem.label : t('dashboard'));
 
     // Update document title
     useEffect(() => {
@@ -51,6 +53,7 @@ const DashboardLayout = () => {
     }, [pageTitle]);
 
     const [mobileOpen, setMobileOpen] = useState(false);
+    const portalTitle = portalType === 'lab' ? 'PORTAL INVENTORY LAB' : 'PORTAL INVENTORY NON LAB';
 
     return (
         <div className="min-h-screen bg-slate-50 flex font-sans">
@@ -174,7 +177,7 @@ const DashboardLayout = () => {
                 <header className="p-6 md:p-8 border-b border-slate-200 bg-slate-50 pt-16 lg:pt-8 flex flex-col md:flex-row justify-between items-start md:items-center flex-shrink-0 print:hidden gap-4">
                     <div>
                         <h1 className="text-2xl font-extrabold text-[#000080] tracking-tight leading-tight">
-                            PORTAL INVENTORY
+                            {portalTitle}
                         </h1>
                         <h2 className="text-lg font-bold text-slate-600">SMPK SANTA MARIA 2 MALANG</h2>
                     </div>

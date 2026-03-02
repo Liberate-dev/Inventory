@@ -1,5 +1,11 @@
 import { useState } from 'react';
 import type { Item, ComponentCondition } from '../types';
+import {
+    buildInventoryCode,
+    DEFAULT_INVENTORY_CODE_SETTINGS,
+    deriveRoomCode,
+    type InventoryCodeSettings
+} from '../utils/inventoryCode';
 
 interface ItemFormData {
     name: string;
@@ -15,6 +21,8 @@ interface ItemFormData {
 
 export const useItemForm = (initialItem?: Item | null) => {
     void initialItem;
+    const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+    const INVENTORY_CODES_ENDPOINT = `${API_BASE_URL}/inventory/inventory_codes.php`;
 
     const defaultState: ItemFormData = {
         name: '',
@@ -58,10 +66,46 @@ export const useItemForm = (initialItem?: Item | null) => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
-    const generateSku = () => {
-        const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        const random = Math.random().toString(36).substring(2, 6).toUpperCase();
-        updateField('sku', `INV-${date}-${random}`);
+    const generateSku = async (options?: { roomId?: string; roomName?: string }) => {
+        try {
+            const response = await fetch(INVENTORY_CODES_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'generate',
+                    roomId: options?.roomId ?? null,
+                    roomName: options?.roomName ?? null
+                })
+            });
+
+            const payload = await response.json().catch(() => ({})) as {
+                status?: string;
+                code?: string;
+                settings?: Partial<InventoryCodeSettings>;
+            };
+            if (response.ok && payload.status === 'success' && typeof payload.code === 'string' && payload.code.trim().length > 0) {
+                updateField('sku', payload.code.trim().toUpperCase());
+                return;
+            }
+
+            const fallbackSettings: InventoryCodeSettings = {
+                ...DEFAULT_INVENTORY_CODE_SETTINGS,
+                ...(payload.settings ?? {})
+            };
+            const fallbackCode = buildInventoryCode(
+                fallbackSettings,
+                Date.now() % 10000,
+                deriveRoomCode(options?.roomName)
+            );
+            updateField('sku', fallbackCode);
+        } catch {
+            const fallbackCode = buildInventoryCode(
+                DEFAULT_INVENTORY_CODE_SETTINGS,
+                Date.now() % 10000,
+                deriveRoomCode(options?.roomName)
+            );
+            updateField('sku', fallbackCode);
+        }
     };
 
     // Parameter Logic Helpers

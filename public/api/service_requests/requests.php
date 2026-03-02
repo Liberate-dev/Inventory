@@ -222,6 +222,7 @@ if ($method === 'PUT') {
         ? (string) $payload['rejectionReason']
         : (array_key_exists('rejection_reason', $payload) ? (string) $payload['rejection_reason'] : null);
     $resolutionOutcome = isset($payload['resolutionOutcome']) ? (string) $payload['resolutionOutcome'] : null;
+    $note = array_key_exists('note', $payload) ? trim((string) $payload['note']) : null;
 
     $fields = [];
     $params = [':id' => $id];
@@ -291,7 +292,8 @@ if ($method === 'PUT') {
             $updateItemStmt->execute();
 
             appendItemLog($db, $itemId, 'MAINTENANCE_ACCEPTED', [
-                'serviceRequestId' => (string) $id
+                'serviceRequestId' => (string) $id,
+                'note' => $note !== '' ? $note : null
             ]);
         }
 
@@ -327,7 +329,8 @@ if ($method === 'PUT') {
 
             appendItemLog($db, $itemId, 'MAINTENANCE_DENIED', [
                 'serviceRequestId' => (string) $id,
-                'reason' => $rejectionReason
+                'reason' => $rejectionReason,
+                'note' => $note !== '' ? $note : null
             ]);
         }
 
@@ -358,7 +361,8 @@ if ($method === 'PUT') {
 
                 appendItemLog($db, $itemId, 'MAINTENANCE_COMPLETED', [
                     'serviceRequestId' => (string) $id,
-                    'outcome' => $effectiveOutcome
+                    'outcome' => $effectiveOutcome,
+                    'note' => $note !== '' ? $note : null
                 ]);
             }
         }

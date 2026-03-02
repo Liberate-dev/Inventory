@@ -233,9 +233,9 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
     $countLogsStmt = $db->prepare("SELECT COUNT(*) FROM item_logs WHERE item_id = :item_id");
 
     $insertDefaultLog = function (int $itemId) use ($insertLogStmt): void {
-        $action = 'INITIALIZED';
+        $action = 'CREATED';
         $date = date('Y-m-d H:i:s');
-        $details = json_encode('Log awal item dibuat otomatis.', JSON_UNESCAPED_UNICODE);
+        $details = json_encode('Item dibuat.', JSON_UNESCAPED_UNICODE);
         if ($details === false || $details === null) {
             $details = json_encode('');
         }

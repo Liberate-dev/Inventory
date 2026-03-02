@@ -145,4 +145,28 @@ CREATE TABLE `service_requests` (
   CONSTRAINT `fk_request_user` FOREIGN KEY (`requester_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `inventory_code_settings`
+--
+
+CREATE TABLE `inventory_code_settings` (
+  `id` tinyint(3) unsigned NOT NULL,
+  `prefix` varchar(20) NOT NULL DEFAULT 'INV',
+  `separator` varchar(3) NOT NULL DEFAULT '-',
+  `year_format` enum('none','2','4') NOT NULL DEFAULT '4',
+  `include_room_code` tinyint(1) NOT NULL DEFAULT 1,
+  `sequence_padding` tinyint(3) unsigned NOT NULL DEFAULT 4,
+  `next_number` int(10) unsigned NOT NULL DEFAULT 1,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `inventory_code_settings`
+  (`id`, `prefix`, `separator`, `year_format`, `include_room_code`, `sequence_padding`, `next_number`)
+VALUES
+  (1, 'INV', '-', '4', 1, 4, 1)
+ON DUPLICATE KEY UPDATE `id` = `id`;
+
 COMMIT;

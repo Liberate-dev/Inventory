@@ -13,9 +13,12 @@ const ServiceRequests = () => {
     const { getRoom, updateRoom, rooms, refreshRooms } = useInventory(); // Get access to live inventory
     const { t } = useLanguage();
     const [filterStatus, setFilterStatus] = useState<RequestStatus | 'all'>('all');
+    const [timeFilter, setTimeFilter] = useState<'all' | 'today' | '7d' | '30d' | '90d'>('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null);
     const [rejectionReason, setRejectionReason] = useState('');
+    const [acceptNote, setAcceptNote] = useState('');
+    const [completionNote, setCompletionNote] = useState('');
 
     // Modal State
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
@@ -23,6 +26,7 @@ const ServiceRequests = () => {
     const [modalType, setModalType] = useState<'station' | 'container' | null>(null);
     const [initialSelection, setInitialSelection] = useState<string | undefined>(undefined);
 
+    const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
     const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
 
@@ -82,6 +86,20 @@ const ServiceRequests = () => {
 
     const filteredRequests = requests.filter(req => {
         const matchesStatus = filterStatus === 'all' || req.status === filterStatus;
+
+        const requestTime = new Date(req.requestDate).getTime();
+        const now = Date.now();
+        const startOfToday = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+        const matchesTime = (() => {
+            if (!Number.isFinite(requestTime)) return false;
+            if (timeFilter === 'all') return true;
+            if (timeFilter === 'today') return requestTime >= startOfToday;
+            if (timeFilter === '7d') return requestTime >= (now - 7 * 24 * 60 * 60 * 1000);
+            if (timeFilter === '30d') return requestTime >= (now - 30 * 24 * 60 * 60 * 1000);
+            if (timeFilter === '90d') return requestTime >= (now - 90 * 24 * 60 * 60 * 1000);
+            return true;
+        })();
+
         const normalizedSearch = searchTerm.toLowerCase();
         const componentName = typeof req.componentName === 'string' ? req.componentName.toLowerCase() : '';
         const description = typeof req.description === 'string' ? req.description.toLowerCase() : '';
@@ -91,7 +109,7 @@ const ServiceRequests = () => {
             description.includes(normalizedSearch) ||
             stationName.includes(normalizedSearch) ||
             roomName.includes(normalizedSearch);
-        return matchesStatus && matchesSearch;
+        return matchesStatus && matchesSearch && matchesTime;
     });
 
     const getStatusColor = (status: RequestStatus) => {
@@ -120,9 +138,10 @@ const ServiceRequests = () => {
     const handleComplete = async (outcome: 'repaired' | 'broken') => {
         if (!selectedRequest) return;
         try {
-            await updateRequestStatus(selectedRequest.id, 'completed', undefined, outcome);
+            await updateRequestStatus(selectedRequest.id, 'completed', undefined, outcome, completionNote);
             await refreshRooms();
             setIsCompleteModalOpen(false);
+            setCompletionNote('');
             setSelectedRequest(null);
         } catch (error) {
             console.error('Failed to complete request:', error);
@@ -130,10 +149,14 @@ const ServiceRequests = () => {
         }
     };
 
-    const handleAccept = async (requestId: string) => {
+    const handleAccept = async () => {
+        if (!selectedRequest) return;
         try {
-            await updateRequestStatus(requestId, 'accepted');
+            await updateRequestStatus(selectedRequest.id, 'accepted', undefined, undefined, acceptNote);
             await refreshRooms();
+            setIsAcceptModalOpen(false);
+            setAcceptNote('');
+            setSelectedRequest(null);
         } catch (error) {
             console.error('Failed to accept request:', error);
             alert(error instanceof Error ? error.message : 'Gagal memperbarui request.');
@@ -148,7 +171,7 @@ const ServiceRequests = () => {
             </div>
 
             {/* Filters */}
-            <div className="flex gap-4 mb-6">
+            <div className="flex gap-4 mb-6 flex-wrap">
                 <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                     <input
@@ -159,6 +182,17 @@ const ServiceRequests = () => {
                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                     />
                 </div>
+                <select
+                    value={timeFilter}
+                    onChange={(e) => setTimeFilter(e.target.value as 'all' | 'today' | '7d' | '30d' | '90d')}
+                    className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-gray-700"
+                >
+                    <option value="all">Semua Waktu</option>
+                    <option value="today">Hari Ini</option>
+                    <option value="7d">7 Hari Terakhir</option>
+                    <option value="30d">30 Hari Terakhir</option>
+                    <option value="90d">90 Hari Terakhir</option>
+                </select>
                 <div className="flex gap-2">
                     {(['all', 'pending', 'accepted', 'completed', 'denied'] as const).map(status => (
                         <button
@@ -244,7 +278,11 @@ const ServiceRequests = () => {
                                                     {req.status === 'pending' && (
                                                         <>
                                                             <button
-                                                                onClick={() => { void handleAccept(req.id); }}
+                                                                onClick={() => {
+                                                                    setSelectedRequest(req);
+                                                                    setAcceptNote('');
+                                                                    setIsAcceptModalOpen(true);
+                                                                }}
                                                                 className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded shadow-sm border border-emerald-100 bg-white"
                                                                 title="Accept"
                                                             >
@@ -261,7 +299,11 @@ const ServiceRequests = () => {
                                                     )}
                                                     {req.status === 'accepted' && (
                                                         <button
-                                                            onClick={() => { setSelectedRequest(req); setIsCompleteModalOpen(true); }}
+                                                            onClick={() => {
+                                                                setSelectedRequest(req);
+                                                                setCompletionNote('');
+                                                                setIsCompleteModalOpen(true);
+                                                            }}
                                                             className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded shadow-sm border border-indigo-100 bg-white"
                                                             title="Mark Complete"
                                                         >
@@ -283,6 +325,40 @@ const ServiceRequests = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Reject Modal */}
+            {isAcceptModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">Terima Permintaan</h3>
+                        <p className="text-sm text-gray-500 mb-4">Tambahkan catatan proses (opsional) agar tampil di log maintenance.</p>
+                        <textarea
+                            value={acceptNote}
+                            onChange={(e) => setAcceptNote(e.target.value)}
+                            className="w-full h-28 p-3 border border-gray-200 rounded-lg mb-4 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                            placeholder="Contoh: Dijadwalkan cek teknisi jam 10.00"
+                        />
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setIsAcceptModalOpen(false);
+                                    setSelectedRequest(null);
+                                    setAcceptNote('');
+                                }}
+                                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm font-medium"
+                            >
+                                {t('btn_cancel')}
+                            </button>
+                            <button
+                                onClick={() => { void handleAccept(); }}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-500"
+                            >
+                                Terima
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Reject Modal */}
             {isRejectModalOpen && (
@@ -320,7 +396,13 @@ const ServiceRequests = () => {
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-2">{t('complete_title')}</h3>
-                        <p className="text-sm text-gray-500 mb-6">{t('complete_desc')}</p>
+                        <p className="text-sm text-gray-500 mb-4">{t('complete_desc')}</p>
+                        <textarea
+                            value={completionNote}
+                            onChange={(e) => setCompletionNote(e.target.value)}
+                            className="w-full h-24 p-3 border border-gray-200 rounded-lg mb-4 text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                            placeholder="Catatan hasil perbaikan (opsional)"
+                        />
                         <div className="grid grid-cols-2 gap-4">
                             <button
                                 onClick={() => { void handleComplete('repaired'); }}
@@ -340,7 +422,11 @@ const ServiceRequests = () => {
                             </button>
                         </div>
                         <button
-                            onClick={() => setIsCompleteModalOpen(false)}
+                            onClick={() => {
+                                setIsCompleteModalOpen(false);
+                                setCompletionNote('');
+                                setSelectedRequest(null);
+                            }}
                             className="mt-6 w-full py-2 text-gray-500 hover:text-gray-700 text-sm"
                         >
                             {t('btn_cancel')}
@@ -365,6 +451,7 @@ const ServiceRequests = () => {
                             key="container-modal"
                             container={selectedContainer}
                             roomId={selectedRoomId ?? undefined}
+                            roomName={selectedRoomId ? (getRoom(selectedRoomId)?.name ?? undefined) : undefined}
                             initialItemId={initialSelection}
                             onClose={() => { setSelectedContainer(null); setSelectedRoomId(null); setInitialSelection(undefined); }}
                             onUpdate={(container) => { void handleUpdateContainer(container); }}
