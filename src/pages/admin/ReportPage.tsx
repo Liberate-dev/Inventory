@@ -2,6 +2,34 @@ import { useState, useMemo } from 'react';
 import { Download, TrendingUp, AlertTriangle, FileText } from 'lucide-react';
 import { useInventory } from '../../context/InventoryContext';
 
+type LogStatus = 'good' | 'bad';
+
+const parseDetails = (raw: unknown): Record<string, unknown> => {
+    if (typeof raw === 'object' && raw !== null) return raw as Record<string, unknown>;
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw) as unknown;
+            if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, unknown>;
+        } catch {
+            return {};
+        }
+    }
+    return {};
+};
+
+const normalizeActionLabel = (action: string): string => {
+    const label = action.replaceAll('_', ' ').toLowerCase();
+    return label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+const getLogStatus = (action: string, details: Record<string, unknown>): LogStatus => {
+    if (action === 'MAINTENANCE_COMPLETED') {
+        const outcome = String(details.outcome ?? details.conditionAfter ?? details.condition ?? '').toLowerCase();
+        return outcome === 'broken' ? 'bad' : 'good';
+    }
+    return 'good';
+};
+
 const ReportPage = () => {
     const { rooms } = useInventory();
     const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -20,7 +48,8 @@ const ReportPage = () => {
                     if (item.logs) {
                         item.logs.forEach((log) => {
                             if (log.date.startsWith(selectedMonth)) {
-                                const status = item.condition === 'good' ? 'good' : item.condition === 'service' ? 'warning' : 'bad';
+                                const details = parseDetails(log.details);
+                                const status = getLogStatus(log.action, details);
                                 logs.push({
                                     id: log.id,
                                     date: log.date,
@@ -28,18 +57,13 @@ const ReportPage = () => {
                                     item: item.name,
                                     action: log.action,
                                     status: status,
-                                    details: log.details // Keep for tooltip if needed
+                                    details
                                 });
 
                                 const actionText = typeof log.action === 'string' ? log.action : '';
                                 if (actionText.toLowerCase().includes('add') || actionText.toLowerCase().includes('new')) stockInCount++;
                             }
                         });
-                    }
-                    // Current status adds to issues if bad
-                    if (item.condition !== 'good') {
-                        // This is current state, not historical log. For report, maybe we just count logs?
-                        // Let's stick to log based stats for "Activity Report"
                     }
                 });
             });
@@ -51,7 +75,7 @@ const ReportPage = () => {
             roomLogs: sortedLogs,
             stats: {
                 totalActions: logs.length,
-                issues: logs.filter(l => l.status === 'bad' || l.action === 'REPORT_ISSUE').length,
+                issues: logs.filter(l => l.status === 'bad').length,
                 stockIn: stockInCount
             }
         };
@@ -154,14 +178,13 @@ const ReportPage = () => {
                                                 <td className="p-4 text-slate-700 font-medium">{log.roomName}</td>
                                                 <td className="p-4 font-bold text-slate-900">{log.item}</td>
                                                 <td className="p-4 text-slate-700">
-                                                    <span className="truncate max-w-[200px] block" title={log.action}>{log.action}</span>
+                                                    <span className="truncate max-w-[200px] block" title={log.action}>{normalizeActionLabel(log.action)}</span>
                                                 </td>
                                                 <td className="p-4 text-center">
                                                     <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide
                                                     ${log.status === 'good' ? 'bg-emerald-100 text-emerald-700 print:bg-transparent print:text-black' :
-                                                            log.status === 'bad' ? 'bg-red-100 text-red-700 print:bg-transparent print:text-black' :
-                                                                'bg-amber-100 text-amber-700 print:bg-transparent print:text-black'}`}>
-                                                        {log.status === 'bad' ? 'Issue' : log.status === 'good' ? 'Normal' : 'Warning'}
+                                                            'bg-red-100 text-red-700 print:bg-transparent print:text-black'}`}>
+                                                        {log.status === 'bad' ? 'Issue' : 'Normal'}
                                                     </span>
                                                 </td>
                                             </tr>

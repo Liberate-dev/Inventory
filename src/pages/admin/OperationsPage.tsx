@@ -23,6 +23,20 @@ const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
     return {};
 };
 
+const formatLocationLabel = (value: unknown): string => {
+    const raw = String(value ?? '').trim();
+    if (raw === '') return '-';
+
+    // Hide long numeric tokens that are typically technical IDs/timestamps.
+    const cleaned = raw
+        .replace(/\b\d{6,}\b/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/\s*-\s*$/, '')
+        .trim();
+
+    return cleaned === '' ? '-' : cleaned;
+};
+
 const capitalizeFirst = (str: string) => str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
 
 export default function OperationsPage() {
@@ -189,8 +203,16 @@ export default function OperationsPage() {
         });
 
         try {
-            // Sequential update to avoid DB deadlock (SQLSTATE[40001])
-            for (const roomState of currentRoomsState) {
+            // Persist target first, then source rooms, to preserve moved item IDs.
+            const sourceRoomIds = Array.from(new Set(selectedItemsData.map(({ room }) => room.id)));
+            const prioritizedRoomIds = [
+                targetRoom.id,
+                ...sourceRoomIds.filter((roomId) => roomId !== targetRoom.id)
+            ];
+
+            for (const roomId of prioritizedRoomIds) {
+                const roomState = currentRoomsState.find((room) => room.id === roomId);
+                if (!roomState) continue;
                 await updateRoom(roomState);
             }
             setShowSuccess(`Successfully moved ${selectedItemIds.length} items to ${targetRoom.name}`);
@@ -264,6 +286,7 @@ export default function OperationsPage() {
                 action: usageForm.actionType === 'checkout' ? 'CHECK_OUT' : 'RETURNED',
                 details: JSON.stringify({
                     borrower: usageForm.borrower,
+                    returner: usageForm.actionType === 'checkin' ? usageForm.borrower : undefined,
                     purpose: usageForm.purpose,
                     verifiedBy: verifierInfo,
                     condition: usageForm.conditionCheck
@@ -291,8 +314,10 @@ export default function OperationsPage() {
         });
 
         try {
-            // Sequential update to avoid DB deadlock
-            for (const roomState of currentRoomsState) {
+            const affectedRoomIds = Array.from(new Set(selectedItemsData.map(({ room }) => room.id)));
+            for (const roomId of affectedRoomIds) {
+                const roomState = currentRoomsState.find((room) => room.id === roomId);
+                if (!roomState) continue;
                 await updateRoom(roomState);
             }
             setShowSuccess(`Successfully ${usageForm.actionType === 'checkout' ? 'checked out' : 'returned'} ${selectedItemIds.length} items`);
@@ -368,8 +393,8 @@ export default function OperationsPage() {
                         String(idx + 1),
                         new Date(entry.log.date).toLocaleDateString('id-ID'),
                         entry.item.name,
-                        String(d.from ?? '-'),
-                        String(d.to ?? '-'),
+                        formatLocationLabel(d.from),
+                        formatLocationLabel(d.to),
                         String(d.mover ?? '-'),
                         String(d.receiver ?? '-'),
                         String(d.condition ?? '-'),
@@ -847,6 +872,7 @@ export default function OperationsPage() {
                             {filteredItems.length > 0 ? (
                                 filteredItems.map(({ item, room, container }) => {
                                     const isSelected = selectedItemIds.includes(item.id);
+                                    const displayStatus = item.condition === 'broken' ? 'broken' : item.status;
                                     return (
                                         <div
                                             key={item.id}
@@ -866,11 +892,12 @@ export default function OperationsPage() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${item.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
-                                                item.status === 'in_use' ? 'bg-amber-100 text-amber-700' :
-                                                    'bg-red-100 text-red-700'
+                                            <div className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${displayStatus === 'available' ? 'bg-emerald-100 text-emerald-700' :
+                                                displayStatus === 'in_use' ? 'bg-amber-100 text-amber-700' :
+                                                    displayStatus === 'broken' ? 'bg-rose-100 text-rose-700' :
+                                                        'bg-red-100 text-red-700'
                                                 }`}>
-                                                {item.status.replace('_', ' ')}
+                                                {displayStatus.replace('_', ' ')}
                                             </div>
                                         </div>
                                     );
@@ -972,6 +999,7 @@ function PendingVerifications() {
         if (!verifyingLog) return;
 
         const targetLogEntry = verifyingLog;
+        const affectedRoomIds = new Set<string>();
 
         let found = false;
         // Need to loop rooms to find the item that has THIS log id
@@ -983,6 +1011,7 @@ function PendingVerifications() {
                     const logIndex = item.logs?.findIndex(l => l.id === targetLogEntry.log.id);
                     if (logIndex !== undefined && logIndex !== -1) {
                         found = true;
+                        affectedRoomIds.add(room.id);
                         // Update Log
                         const updatedLogs = [...item.logs];
                         const oldDetails = parseLogDetails(updatedLogs[logIndex].details);
@@ -1009,8 +1038,9 @@ function PendingVerifications() {
 
         if (found) {
             try {
-                // Sequential update to avoid DB deadlock
-                for (const roomState of newRooms) {
+                for (const roomId of affectedRoomIds) {
+                    const roomState = newRooms.find((room) => room.id === roomId);
+                    if (!roomState) continue;
                     await updateRoom(roomState);
                 }
                 setVerifyingLog(null);
@@ -1033,7 +1063,7 @@ function PendingVerifications() {
                         <div>
                             <div className="font-bold text-slate-700 text-sm">{entry.itemName}</div>
                             <div className="text-xs text-slate-500">
-                                To: {String(parseLogDetails(entry.log.details).to ?? '-')}
+                                To: {formatLocationLabel(parseLogDetails(entry.log.details).to)}
                             </div>
                         </div>
                         <button
@@ -1076,8 +1106,10 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     const [filterType, setFilterType] = useState<'ALL' | 'TRANSFER' | 'CHECK_OUT' | 'RETURNED'>('ALL');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedLog, setSelectedLog] = useState<{ entry: (typeof recentLogs)[0]; details: Record<string, unknown> } | null>(null);
+    const operationalActions = new Set(['TRANSFER', 'CHECK_OUT', 'RETURNED']);
+    const operationalLogs = recentLogs.filter((entry) => operationalActions.has(entry.log.action));
 
-    const filteredLogs = recentLogs.filter(entry => {
+    const filteredLogs = operationalLogs.filter(entry => {
         if (filterType !== 'ALL' && entry.log.action !== filterType) return false;
         if (searchTerm) {
             const s = searchTerm.toLowerCase();
@@ -1085,7 +1117,8 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
             if (
                 !entry.itemName.toLowerCase().includes(s) &&
                 !String(d.mover ?? '').toLowerCase().includes(s) &&
-                !String(d.borrower ?? '').toLowerCase().includes(s)
+                !String(d.borrower ?? '').toLowerCase().includes(s) &&
+                !String(d.returner ?? '').toLowerCase().includes(s)
             ) return false;
         }
         return true;
@@ -1154,7 +1187,7 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                                             </span>
                                         </div>
                                         <div className="text-sm text-slate-500 mt-1 line-clamp-1">
-                                            {entry.log.action === 'TRANSFER' && `Dari ${String(details.from || '-')} ke ${String(details.to || '-')}`}
+                                            {entry.log.action === 'TRANSFER' && `Dari ${formatLocationLabel(details.from)} ke ${formatLocationLabel(details.to)}`}
                                             {entry.log.action === 'CHECK_OUT' && `Peminjam: ${String(details.borrower || '-')} \u2014 ${String(details.purpose || '-')}`}
                                             {entry.log.action === 'RETURNED' && `Dikembalikan oleh: ${String(details.returner || '-')} (Kondisi: ${String(details.condition || '-')})`}
                                         </div>
@@ -1202,8 +1235,8 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                                         <div className="col-span-2">
                                             <div className="text-xs text-slate-400 font-bold uppercase mb-1">Perpindahan</div>
                                             <div className="text-sm text-slate-600 p-2 bg-slate-50 rounded-lg">
-                                                <div className="flex justify-between border-b border-slate-200 pb-1 mb-1"><span>Dari:</span> <span className="font-bold">{String(selectedLog.details.from)}</span></div>
-                                                <div className="flex justify-between"><span>Ke:</span> <span className="font-bold">{String(selectedLog.details.to)}</span></div>
+                                                <div className="flex justify-between border-b border-slate-200 pb-1 mb-1"><span>Dari:</span> <span className="font-bold">{formatLocationLabel(selectedLog.details.from)}</span></div>
+                                                <div className="flex justify-between"><span>Ke:</span> <span className="font-bold">{formatLocationLabel(selectedLog.details.to)}</span></div>
                                             </div>
                                         </div>
                                         <div>

@@ -180,10 +180,12 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
     foreach ($existingRows as $existingRow) {
         $existingItemIds[(int) $existingRow['id']] = true;
     }
+    $findItemByIdStmt = $db->prepare("SELECT id FROM items WHERE id = :id LIMIT 1");
 
     $updateItemStmt = $db->prepare(
         "UPDATE `items`
          SET
+            `container_id` = :container_id,
             `name` = :name,
             `type` = :type,
             `condition` = :condition,
@@ -197,7 +199,7 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
             `unit` = :unit,
             `min_stock` = :min_stock,
             `parameters` = :parameters
-         WHERE `id` = :id AND `container_id` = :container_id"
+         WHERE `id` = :id"
     );
 
     $insertItemStmt = $db->prepare(
@@ -214,7 +216,20 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
         "INSERT INTO item_logs (item_id, action, date, details)
          VALUES (:item_id, :action, :date, :details)"
     );
-    $deleteLogsStmt = $db->prepare("DELETE FROM item_logs WHERE item_id = :item_id");
+    $logExistsStmt = $db->prepare(
+        "SELECT id
+         FROM item_logs
+         WHERE item_id = :item_id
+           AND action = :action
+           AND date = :date
+           AND details = :details
+         LIMIT 1"
+    );
+    $updateLogByIdStmt = $db->prepare(
+        "UPDATE item_logs
+         SET action = :action, date = :date, details = :details
+         WHERE id = :id AND item_id = :item_id"
+    );
     $countLogsStmt = $db->prepare("SELECT COUNT(*) FROM item_logs WHERE item_id = :item_id");
 
     $insertDefaultLog = function (int $itemId) use ($insertLogStmt): void {
@@ -261,7 +276,12 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
         $minStock = isset($item['minStock']) ? (int) $item['minStock'] : (isset($item['min_stock']) ? (int) $item['min_stock'] : 0);
         $parameters = isset($item['parameters']) && is_array($item['parameters']) ? json_encode($item['parameters']) : json_encode([]);
         $itemId = validateId($item['id'] ?? null);
-        $hasExistingItem = $itemId !== null && isset($existingItemIds[$itemId]);
+        $hasExistingItem = false;
+        if ($itemId !== null) {
+            $findItemByIdStmt->bindValue(':id', $itemId, PDO::PARAM_INT);
+            $findItemByIdStmt->execute();
+            $hasExistingItem = (bool) $findItemByIdStmt->fetch(PDO::FETCH_ASSOC);
+        }
 
         if ($hasExistingItem) {
             $updateItemStmt->bindValue(':id', $itemId, PDO::PARAM_INT);
@@ -344,10 +364,7 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
             continue;
         }
 
-        $deleteLogsStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
-        $deleteLogsStmt->execute();
-
-        $insertedLogCount = 0;
+        $insertedOrExistingLogCount = 0;
         foreach ($item['logs'] as $log) {
             if (!is_array($log) || !isset($log['action'])) {
                 continue;
@@ -375,15 +392,40 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
                 $details = json_encode('');
             }
 
+            $incomingLogId = validateId($log['id'] ?? null);
+            if ($incomingLogId !== null) {
+                $updateLogByIdStmt->bindValue(':id', $incomingLogId, PDO::PARAM_INT);
+                $updateLogByIdStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
+                $updateLogByIdStmt->bindValue(':action', $action, PDO::PARAM_STR);
+                $updateLogByIdStmt->bindValue(':date', $date, PDO::PARAM_STR);
+                $updateLogByIdStmt->bindValue(':details', $details, PDO::PARAM_STR);
+                $updateLogByIdStmt->execute();
+
+                if ($updateLogByIdStmt->rowCount() > 0) {
+                    $insertedOrExistingLogCount++;
+                    continue;
+                }
+            }
+
+            $logExistsStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
+            $logExistsStmt->bindValue(':action', $action, PDO::PARAM_STR);
+            $logExistsStmt->bindValue(':date', $date, PDO::PARAM_STR);
+            $logExistsStmt->bindValue(':details', $details, PDO::PARAM_STR);
+            $logExistsStmt->execute();
+            if ($logExistsStmt->fetch(PDO::FETCH_ASSOC)) {
+                $insertedOrExistingLogCount++;
+                continue;
+            }
+
             $insertLogStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);
             $insertLogStmt->bindValue(':action', $action, PDO::PARAM_STR);
             $insertLogStmt->bindValue(':date', $date, PDO::PARAM_STR);
             $insertLogStmt->bindValue(':details', $details, PDO::PARAM_STR);
             $insertLogStmt->execute();
-            $insertedLogCount++;
+            $insertedOrExistingLogCount++;
         }
 
-        if ($insertedLogCount === 0) {
+        if ($insertedOrExistingLogCount === 0) {
             $insertDefaultLog($newItemId);
         }
     }

@@ -54,6 +54,46 @@ const ensureComponentLogs = (logs: unknown): ItemLog[] => {
     return [createComponentLog('INITIALIZED', 'Log awal komponen dibuat otomatis.')];
 };
 
+const sanitizeLocation = (value: unknown): string => {
+    const raw = String(value ?? '').trim();
+    if (raw === '') return '-';
+    return raw
+        .replace(/\b\d{6,}\b/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/\s*-\s*$/, '')
+        .trim() || '-';
+};
+
+const parseLogDetailsObject = (details: unknown): Record<string, unknown> | null => {
+    if (typeof details === 'object' && details !== null) return details as Record<string, unknown>;
+    if (typeof details === 'string') {
+        const trimmed = details.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                const parsed = JSON.parse(trimmed) as unknown;
+                if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, unknown>;
+            } catch {
+                return null;
+            }
+        }
+    }
+    return null;
+};
+
+const formatLogDetails = (action: string, details: unknown): string => {
+    const data = parseLogDetailsObject(details);
+    if (action === 'TRANSFER' && data) return `Dari ${sanitizeLocation(data.from)} ke ${sanitizeLocation(data.to)}`;
+    if (action === 'CHECK_OUT' && data) return `Peminjam: ${String(data.borrower ?? '-')} - ${String(data.purpose ?? '-')}`;
+    if (action === 'RETURNED' && data) return `Dikembalikan oleh: ${String(data.returner ?? data.borrower ?? '-')} (Kondisi: ${String(data.condition ?? '-')})`;
+    if (action === 'MAINTENANCE_REQUESTED' && data) return `Laporan masuk: ${String(data.description ?? '-')}`;
+    if (action === 'MAINTENANCE_ACCEPTED') return 'Permintaan maintenance diterima.';
+    if (action === 'MAINTENANCE_DENIED' && data) return `Permintaan ditolak: ${String(data.reason ?? '-')}`;
+    if (action === 'MAINTENANCE_COMPLETED' && data) return `Maintenance selesai (${String(data.outcome ?? '-')}).`;
+    if (typeof details === 'string') return details;
+    if (data) return Object.entries(data).map(([key, value]) => `${key}: ${String(value)}`).join(' | ');
+    return String(details ?? '');
+};
+
 const mapItemsToComponents = (items: any[]) => {
     const components: Record<string, any> = {};
     items.forEach(item => {
@@ -70,6 +110,17 @@ const mapItemsToComponents = (items: any[]) => {
         else if (['desk', 'table', 'physical desk', 'workstation'].includes(type)) components.desk = { ...baseComponent, specs: parseSpecs(item?.specs, ['Standard Desk']) };
     });
     return components;
+};
+
+const renderActiveIcon = (selectedComponent: string | null, hoveredComponent: ComponentType | null) => {
+    switch (selectedComponent || hoveredComponent) {
+        case 'monitor': return <Monitor className="text-indigo-400" size={24} />;
+        case 'keyboard': return <Keyboard className="text-indigo-400" size={24} />;
+        case 'mouse': return <Mouse className="text-indigo-400" size={24} />;
+        case 'pc': return <Cpu className="text-indigo-400" size={24} />;
+        case 'desk': return <Maximize className="text-indigo-400" size={24} />;
+        default: return <Activity className="text-indigo-400" size={24} />;
+    }
 };
 
 const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose, onUpdate }: StationDetailModalProps) => {
@@ -145,21 +196,30 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                 componentCategory: 'Station Component', // Generic for station/visual parts
             });
 
-            // 2. Update Component Status & Log
-            const newLog = createComponentLog('REPORTED', `Issue reported: ${reportReason}`);
+            const updatedLogs = [
+                createComponentLog('MAINTENANCE_REQUESTED', `Laporan maintenance dibuat: ${reportReason.trim()}`),
+                ...ensureComponentLogs(comp?.logs)
+            ];
 
             const updatedComponent = {
                 ...comp,
                 condition: 'service' as ComponentCondition,
                 status: 'maintenance' as ComponentStatus,
-                logs: [newLog, ...(comp.logs || [])]
+                logs: updatedLogs
             };
 
-            const newComponents = { ...stationComponents, [selectedComponent]: updatedComponent };
-            setStationComponents(newComponents);
+            const nextComponents = {
+                ...stationComponents,
+                [selectedComponent]: updatedComponent
+            };
+            setStationComponents(nextComponents);
 
-            // Update parent container once
-            updateParent(newComponents);
+            const updatedItems = (station.items || []).map((item) =>
+                String(item.id) === String(comp?.id)
+                    ? { ...item, condition: 'service' as const, status: 'maintenance' as const, logs: updatedLogs }
+                    : item
+            );
+            onUpdate({ ...station, items: updatedItems });
 
             showToast(t('report_success'), 'success');
             setIsReporting(false);
@@ -167,27 +227,6 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
             console.error('Failed to submit station report:', error);
             showToast('Gagal mengirim laporan ke backend.', 'error');
         }
-    };
-
-    const updateParent = (currentComponents: any) => {
-        const newItems = (station.items || []).map(item => {
-            // Find if this item matches any updated component
-            // This is a simplified mapping logic for the prototype
-            const compKey = Object.keys(currentComponents).find(key => currentComponents[key].id === item.id);
-            if (compKey) {
-                const comp = currentComponents[compKey];
-                return {
-                    ...item,
-                    name: comp.name,
-                    status: comp.status,
-                    condition: comp.condition,
-                    specs: comp.specs.join(','),
-                    logs: comp.logs
-                };
-            }
-            return item;
-        });
-        onUpdate({ ...station, items: newItems });
     };
 
     const handleInitiateEdit = () => {
@@ -302,17 +341,6 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
         setEditForm({ ...editForm, specs: newSpecs });
     };
 
-    const ActiveIcon = () => {
-        switch (selectedComponent || hoveredComponent) {
-            case 'monitor': return <Monitor className="text-indigo-400" size={24} />;
-            case 'keyboard': return <Keyboard className="text-indigo-400" size={24} />;
-            case 'mouse': return <Mouse className="text-indigo-400" size={24} />;
-            case 'pc': return <Cpu className="text-indigo-400" size={24} />;
-            case 'desk': return <Maximize className="text-indigo-400" size={24} />;
-            default: return <Activity className="text-indigo-400" size={24} />;
-        }
-    };
-
     return (
         <AnimatePresence>
             <motion.div
@@ -343,7 +371,7 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                         <div className="flex justify-between items-start mb-8">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-slate-800 rounded-lg border border-slate-700 shadow-inner">
-                                    <ActiveIcon />
+                                    {renderActiveIcon(selectedComponent, hoveredComponent)}
                                 </div>
                                 <div>
                                     <h4 className="text-slate-400 text-xs uppercase tracking-wider font-semibold">
@@ -539,7 +567,7 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                                     </div>
                                                     <div className="text-xs font-semibold text-white mt-1">{log.action}</div>
                                                     <div className="text-xs text-slate-300 mt-1">
-                                                        {typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}
+                                                        {formatLogDetails(log.action, log.details)}
                                                     </div>
                                                 </div>
                                             ))}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, Box, Activity, Zap, Scissors, Server, Printer, AlertTriangle, RefreshCw, CheckSquare, Square } from 'lucide-react';
-import type { Container, Item, ItemLog, ServiceRequest, ComponentCondition } from '../types';
+import type { Container, Item, ItemLog, ServiceRequest } from '../types';
 import { useServiceRequests } from '../context/ServiceRequestContext';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
@@ -16,16 +16,16 @@ interface ContainerDetailModalProps {
     onUpdate: (updatedContainer: Container) => void;
 }
 
-const getItemIcon = (type: string, name: string) => {
+const renderItemIcon = (type: string, name: string, size: number) => {
     const t = typeof type === 'string' ? type.toLowerCase() : '';
     const n = typeof name === 'string' ? name.toLowerCase() : '';
-    if (t.includes('microscope') || n.includes('microscope')) return Microscope;
-    if (t.includes('optical') || n.includes('optical')) return Activity;
-    if (t.includes('circuit') || n.includes('circuit')) return Zap;
-    if (t.includes('dissection') || n.includes('dissection')) return Scissors;
-    if (t.includes('server') || n.includes('server')) return Server;
-    if (t.includes('printer') || n.includes('printer')) return Printer;
-    return Box;
+    if (t.includes('microscope') || n.includes('microscope')) return <Microscope size={size} />;
+    if (t.includes('optical') || n.includes('optical')) return <Activity size={size} />;
+    if (t.includes('circuit') || n.includes('circuit')) return <Zap size={size} />;
+    if (t.includes('dissection') || n.includes('dissection')) return <Scissors size={size} />;
+    if (t.includes('server') || n.includes('server')) return <Server size={size} />;
+    if (t.includes('printer') || n.includes('printer')) return <Printer size={size} />;
+    return <Box size={size} />;
 };
 
 // Lazy import for icon components to avoid circular dependencies or massive imports if not needed, 
@@ -57,13 +57,66 @@ const ensureItemLogs = (logs: unknown): ItemLog[] => {
     return [createItemLog('INITIALIZED', 'Log awal item dibuat otomatis.')];
 };
 
-const formatLogDetails = (details: unknown): string => {
-    if (typeof details === 'string') return details;
-    try {
-        return JSON.stringify(details);
-    } catch {
-        return String(details ?? '');
+const sanitizeLocation = (value: unknown): string => {
+    const raw = String(value ?? '').trim();
+    if (raw === '') return '-';
+    return raw
+        .replace(/\b\d{6,}\b/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/\s*-\s*$/, '')
+        .trim() || '-';
+};
+
+const parseLogDetailsObject = (details: unknown): Record<string, unknown> | null => {
+    if (typeof details === 'object' && details !== null) {
+        return details as Record<string, unknown>;
     }
+    if (typeof details === 'string') {
+        const trimmed = details.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                const parsed = JSON.parse(trimmed) as unknown;
+                if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, unknown>;
+            } catch {
+                return null;
+            }
+        }
+    }
+    return null;
+};
+
+const formatLogDetails = (action: string, details: unknown): string => {
+    const data = parseLogDetailsObject(details);
+
+    if (action === 'TRANSFER' && data) {
+        return `Dari ${sanitizeLocation(data.from)} ke ${sanitizeLocation(data.to)}`;
+    }
+    if (action === 'CHECK_OUT' && data) {
+        return `Peminjam: ${String(data.borrower ?? '-')} - ${String(data.purpose ?? '-')}`;
+    }
+    if (action === 'RETURNED' && data) {
+        return `Dikembalikan oleh: ${String(data.returner ?? data.borrower ?? '-')} (Kondisi: ${String(data.condition ?? '-')})`;
+    }
+    if (action === 'MAINTENANCE_REQUESTED' && data) {
+        return `Laporan masuk: ${String(data.description ?? '-')}`;
+    }
+    if (action === 'MAINTENANCE_ACCEPTED') {
+        return 'Permintaan maintenance diterima.';
+    }
+    if (action === 'MAINTENANCE_DENIED' && data) {
+        return `Permintaan ditolak: ${String(data.reason ?? '-')}`;
+    }
+    if (action === 'MAINTENANCE_COMPLETED' && data) {
+        return `Maintenance selesai (${String(data.outcome ?? '-')}).`;
+    }
+
+    if (typeof details === 'string') return details;
+    if (data) {
+        return Object.entries(data)
+            .map(([key, value]) => `${key}: ${String(value)}`)
+            .join(' | ');
+    }
+    return String(details ?? '');
 };
 
 const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpdate }: ContainerDetailModalProps) => {
@@ -214,17 +267,19 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                 componentCategory: formData.category,
             });
 
-            // Optimistically update condition + status and add log
-            const updatedItems = items.map(i => {
-                if (i.id !== editingId) return i;
-                const logs = ensureItemLogs(i.logs);
+            const updatedItems = items.map((item) => {
+                if (item.id !== editingId) return item;
                 return {
-                    ...i,
-                    condition: 'service' as ComponentCondition,
-                    status: 'maintenance' as Item['status'],
-                    logs: [createItemLog('REPORTED', `Issue reported: ${reportReason}`), ...logs]
+                    ...item,
+                    condition: 'service' as const,
+                    status: 'maintenance' as const,
+                    logs: [
+                        createItemLog('MAINTENANCE_REQUESTED', `Laporan maintenance dibuat: ${reportReason.trim()}`),
+                        ...ensureItemLogs(item.logs)
+                    ]
                 };
             });
+
             setItems(updatedItems);
             onUpdate({ ...container, items: updatedItems });
 
@@ -510,7 +565,7 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
                                                                 {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
                                                             </div>
                                                             <div className="text-xs font-semibold text-slate-800 mt-1">{log.action}</div>
-                                                            <div className="text-xs text-slate-600 mt-1">{formatLogDetails(log.details)}</div>
+                                                            <div className="text-xs text-slate-600 mt-1">{formatLogDetails(log.action, log.details)}</div>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -605,7 +660,6 @@ const ContainerDetailModal = ({ container, roomId, initialItemId, onClose, onUpd
 // 2D Item Card Component matching user design
 // 2D ItemCard Component
 const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, onEdit: () => void, onDelete: () => void, hasActiveRequest?: boolean }) => {
-    const Icon = getItemIcon(item.type, item.name);
     const { t } = useLanguage();
 
     return (
@@ -630,7 +684,7 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, on
             )}
 
             <div className="w-14 h-14 mb-4 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors">
-                <Icon size={28} />
+                {renderItemIcon(item.type, item.name, 28)}
             </div>
 
             <h4 className="font-bold text-gray-900 text-base mb-1 text-center leading-tight line-clamp-2">{item.name}</h4>

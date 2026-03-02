@@ -124,6 +124,25 @@ function fetchServiceRequests(PDO $db): array
     }, $rows);
 }
 
+function appendItemLog(PDO $db, int $itemId, string $action, array $details): void
+{
+    $payload = json_encode($details, JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        $payload = json_encode([]);
+    }
+
+    $stmt = $db->prepare(
+        "INSERT INTO item_logs (item_id, action, date, details)
+         VALUES (:item_id, :action, :date, :details)"
+    );
+    $now = date('Y-m-d H:i:s');
+    $stmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+    $stmt->bindParam(':action', $action, PDO::PARAM_STR);
+    $stmt->bindParam(':date', $now, PDO::PARAM_STR);
+    $stmt->bindParam(':details', $payload, PDO::PARAM_STR);
+    $stmt->execute();
+}
+
 if ($method === 'GET') {
     $requests = fetchServiceRequests($db);
     respondRequest(200, ['status' => 'success', 'requests' => $requests]);
@@ -140,18 +159,50 @@ if ($method === 'POST') {
         respondRequest(400, ['status' => 'error', 'message' => 'componentId and description are required.']);
     }
 
-    $stmt = $db->prepare(
-        "INSERT INTO service_requests (item_id, requester_id, description, status)
-         VALUES (:item_id, :requester_id, :description, 'pending')"
-    );
-    $stmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
-    if ($resolvedRequesterId === null) {
-        $stmt->bindValue(':requester_id', null, PDO::PARAM_NULL);
-    } else {
-        $stmt->bindValue(':requester_id', $resolvedRequesterId, PDO::PARAM_INT);
+    $itemExistsStmt = $db->prepare("SELECT id FROM items WHERE id = :id LIMIT 1");
+    $itemExistsStmt->bindParam(':id', $itemId, PDO::PARAM_INT);
+    $itemExistsStmt->execute();
+    if (!$itemExistsStmt->fetch(PDO::FETCH_ASSOC)) {
+        respondRequest(400, ['status' => 'error', 'message' => 'Invalid componentId. Item not found.']);
     }
-    $stmt->bindParam(':description', $description, PDO::PARAM_STR);
-    $stmt->execute();
+
+    try {
+        $db->beginTransaction();
+
+        $stmt = $db->prepare(
+            "INSERT INTO service_requests (item_id, requester_id, description, status)
+             VALUES (:item_id, :requester_id, :description, 'pending')"
+        );
+        $stmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+        if ($resolvedRequesterId === null) {
+            $stmt->bindValue(':requester_id', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':requester_id', $resolvedRequesterId, PDO::PARAM_INT);
+        }
+        $stmt->bindParam(':description', $description, PDO::PARAM_STR);
+        $stmt->execute();
+
+        appendItemLog($db, $itemId, 'MAINTENANCE_REQUESTED', [
+            'description' => $description,
+            'requesterId' => $resolvedRequesterId
+        ]);
+
+        // Reporting immediately marks the item as under maintenance.
+        $markMaintenanceStmt = $db->prepare(
+            "UPDATE `items`
+             SET `condition` = 'service', `status` = 'maintenance'
+             WHERE `id` = :item_id"
+        );
+        $markMaintenanceStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+        $markMaintenanceStmt->execute();
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        respondRequest(500, ['status' => 'error', 'message' => 'Failed to create service request.', 'debug' => $e->getMessage()]);
+    }
 
     respondRequest(201, [
         'status' => 'success',
@@ -207,47 +258,91 @@ if ($method === 'PUT') {
         respondRequest(400, ['status' => 'error', 'message' => 'No updatable fields provided.']);
     }
 
-    $sql = "UPDATE service_requests SET " . implode(', ', $fields) . " WHERE id = :id";
-    $stmt = $db->prepare($sql);
-    foreach ($params as $key => $value) {
-        if ($value === null) {
-            $stmt->bindValue($key, null, PDO::PARAM_NULL);
-            continue;
-        }
-        $stmt->bindValue($key, $value);
+    $requestStmt = $db->prepare("SELECT id, item_id FROM service_requests WHERE id = :id LIMIT 1");
+    $requestStmt->bindParam(':id', $id, PDO::PARAM_INT);
+    $requestStmt->execute();
+    $requestRow = $requestStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$requestRow || !isset($requestRow['item_id'])) {
+        respondRequest(404, ['status' => 'error', 'message' => 'Service request not found.']);
     }
-    $stmt->execute();
+    $itemId = (int) $requestRow['item_id'];
 
-    if ($stmt->rowCount() === 0) {
-        // Could be same-value update, still considered success if row exists.
-        $existsStmt = $db->prepare("SELECT id FROM service_requests WHERE id = :id");
-        $existsStmt->bindParam(':id', $id, PDO::PARAM_INT);
-        $existsStmt->execute();
-        if (!$existsStmt->fetch(PDO::FETCH_ASSOC)) {
-            respondRequest(404, ['status' => 'error', 'message' => 'Service request not found.']);
-        }
-    }
+    try {
+        $db->beginTransaction();
 
-    // Keep inventory item state in sync when request is completed.
-    if ($status === 'completed') {
-        $effectiveOutcome = $resolutionOutcome;
-        if ($effectiveOutcome === null && $rejectionReason !== null) {
-            $normalizedReason = strtolower(trim($rejectionReason));
-            if (strpos($normalizedReason, 'repaired') !== false) {
-                $effectiveOutcome = 'repaired';
-            } elseif (strpos($normalizedReason, 'broken') !== false || strpos($normalizedReason, 'unrepairable') !== false) {
-                $effectiveOutcome = 'broken';
+        $sql = "UPDATE service_requests SET " . implode(', ', $fields) . " WHERE id = :id";
+        $stmt = $db->prepare($sql);
+        foreach ($params as $key => $value) {
+            if ($value === null) {
+                $stmt->bindValue($key, null, PDO::PARAM_NULL);
+                continue;
             }
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+
+        if ($status === 'accepted') {
+            $updateItemStmt = $db->prepare(
+                "UPDATE `items`
+                 SET `condition` = 'service', `status` = 'maintenance'
+                 WHERE `id` = :item_id"
+            );
+            $updateItemStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+            $updateItemStmt->execute();
+
+            appendItemLog($db, $itemId, 'MAINTENANCE_ACCEPTED', [
+                'serviceRequestId' => (string) $id
+            ]);
         }
 
-        if ($effectiveOutcome !== null) {
-            $itemStmt = $db->prepare("SELECT item_id FROM service_requests WHERE id = :id LIMIT 1");
-            $itemStmt->bindParam(':id', $id, PDO::PARAM_INT);
-            $itemStmt->execute();
-            $requestRow = $itemStmt->fetch(PDO::FETCH_ASSOC);
+        if ($status === 'denied') {
+            $activeStmt = $db->prepare(
+                "SELECT COUNT(*)
+                 FROM service_requests
+                 WHERE item_id = :item_id
+                   AND id <> :request_id
+                   AND status IN ('pending', 'accepted')"
+            );
+            $activeStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+            $activeStmt->bindParam(':request_id', $id, PDO::PARAM_INT);
+            $activeStmt->execute();
+            $activeCount = (int) $activeStmt->fetchColumn();
 
-            if ($requestRow && isset($requestRow['item_id'])) {
-                $itemId = (int) $requestRow['item_id'];
+            if ($activeCount === 0) {
+                $itemStateStmt = $db->prepare("SELECT `condition` FROM `items` WHERE `id` = :item_id LIMIT 1");
+                $itemStateStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+                $itemStateStmt->execute();
+                $itemState = $itemStateStmt->fetch(PDO::FETCH_ASSOC);
+                $nextCondition = ($itemState && ($itemState['condition'] ?? '') === 'service') ? 'good' : ($itemState['condition'] ?? 'good');
+
+                $revertStmt = $db->prepare(
+                    "UPDATE `items`
+                     SET `condition` = :condition, `status` = 'available'
+                     WHERE `id` = :item_id"
+                );
+                $revertStmt->bindParam(':condition', $nextCondition, PDO::PARAM_STR);
+                $revertStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
+                $revertStmt->execute();
+            }
+
+            appendItemLog($db, $itemId, 'MAINTENANCE_DENIED', [
+                'serviceRequestId' => (string) $id,
+                'reason' => $rejectionReason
+            ]);
+        }
+
+        if ($status === 'completed') {
+            $effectiveOutcome = $resolutionOutcome;
+            if ($effectiveOutcome === null && $rejectionReason !== null) {
+                $normalizedReason = strtolower(trim($rejectionReason));
+                if (strpos($normalizedReason, 'repaired') !== false) {
+                    $effectiveOutcome = 'repaired';
+                } elseif (strpos($normalizedReason, 'broken') !== false || strpos($normalizedReason, 'unrepairable') !== false) {
+                    $effectiveOutcome = 'broken';
+                }
+            }
+
+            if ($effectiveOutcome !== null) {
                 $nextCondition = $effectiveOutcome === 'broken' ? 'broken' : 'good';
                 $nextStatus = $effectiveOutcome === 'broken' ? 'missing' : 'available';
 
@@ -261,30 +356,21 @@ if ($method === 'PUT') {
                 $updateItemStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
                 $updateItemStmt->execute();
 
-                $logDetails = json_encode([
+                appendItemLog($db, $itemId, 'MAINTENANCE_COMPLETED', [
                     'serviceRequestId' => (string) $id,
                     'outcome' => $effectiveOutcome
                 ]);
-                if ($logDetails === false) {
-                    $logDetails = '';
-                }
-
-                $logStmt = $db->prepare(
-                    "INSERT INTO item_logs (item_id, action, date, details)
-                     VALUES (:item_id, :action, :date, :details)"
-                );
-                $action = 'MAINTENANCE_COMPLETED';
-                $now = date('Y-m-d H:i:s');
-                $logStmt->bindParam(':item_id', $itemId, PDO::PARAM_INT);
-                $logStmt->bindParam(':action', $action, PDO::PARAM_STR);
-                $logStmt->bindParam(':date', $now, PDO::PARAM_STR);
-                $logStmt->bindParam(':details', $logDetails, PDO::PARAM_STR);
-                $logStmt->execute();
             }
         }
-    }
 
-    respondRequest(200, ['status' => 'success', 'message' => 'Service request updated.']);
+        $db->commit();
+        respondRequest(200, ['status' => 'success', 'message' => 'Service request updated.']);
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        respondRequest(500, ['status' => 'error', 'message' => 'Failed to update service request.', 'debug' => $e->getMessage()]);
+    }
 }
 
 respondRequest(405, ['status' => 'error', 'message' => 'Method not allowed.']);
