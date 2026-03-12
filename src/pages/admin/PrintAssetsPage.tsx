@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Printer, Tags, FileSpreadsheet, Settings2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useInventory } from '../../context/InventoryContext';
+import { useAuth } from '../../context/AuthContext';
+import { getProcurementDateFromLogs } from '../../utils/itemHistory';
 import InventoryCodeManagementPage from './InventoryCodeManagementPage';
 import logo from '../../assets/logo.png';
 
@@ -18,6 +20,7 @@ type PrintItem = {
     isConsumable: boolean;
     condition: string;
     brand: string;
+    procurementDate: string;
 };
 
 const currentYear = new Date().getFullYear();
@@ -38,8 +41,27 @@ const extractBrand = (parameters?: { label: string; value: string }[]): string =
     return hit?.value?.trim() ? hit.value : '-';
 };
 
+const getSkuTextSizeClass = (sku: string): string => {
+    const length = sku.trim().length;
+    if (length >= 22) return 'text-xs md:text-sm';
+    if (length >= 18) return 'text-sm md:text-base';
+    return 'text-base md:text-lg';
+};
+
+const formatDateId = (value: string): string => {
+    if (!value || value === '-') return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+};
+
 const PrintAssetsPage = () => {
     const { rooms } = useInventory();
+    const { user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const getModeFromQuery = (): 'label' | 'card' | 'codes' => {
         const tab = searchParams.get('tab');
@@ -61,9 +83,32 @@ const PrintAssetsPage = () => {
         }
     }, [searchParams]);
 
+    const visibleRooms = useMemo(() => {
+        if (!user) return rooms;
+        const isScopeRestricted =
+            Boolean(user.labScope)
+            && user.labScope !== 'all';
+
+        return isScopeRestricted
+            ? rooms.filter((room) => room.type === user.labScope)
+            : rooms;
+    }, [rooms, user]);
+
+    useEffect(() => {
+        if (roomFilter !== 'all' && !visibleRooms.some((room) => room.id === roomFilter)) {
+            setRoomFilter('all');
+        }
+    }, [roomFilter, visibleRooms]);
+
+    useEffect(() => {
+        if (cardRoomId !== '' && !visibleRooms.some((room) => room.id === cardRoomId)) {
+            setCardRoomId('');
+        }
+    }, [cardRoomId, visibleRooms]);
+
     const allItems = useMemo<PrintItem[]>(() => {
         const rows: PrintItem[] = [];
-        rooms.forEach((room) => {
+        visibleRooms.forEach((room) => {
             room.containers.forEach((container) => {
                 container.items.forEach((item) => {
                     rows.push({
@@ -78,13 +123,14 @@ const PrintAssetsPage = () => {
                         minStock: item.minStock ?? 0,
                         isConsumable: Boolean(item.isConsumable),
                         condition: item.condition,
-                        brand: extractBrand(item.parameters)
+                        brand: extractBrand(item.parameters),
+                        procurementDate: getProcurementDateFromLogs(item.logs)
                     });
                 });
             });
         });
         return rows;
-    }, [rooms]);
+    }, [visibleRooms]);
 
     const filteredItems = useMemo(() => {
         const needle = search.toLowerCase().trim();
@@ -109,8 +155,8 @@ const PrintAssetsPage = () => {
     );
 
     const cardRoomName = useMemo(
-        () => rooms.find((room) => room.id === cardRoomId)?.name || '-',
-        [rooms, cardRoomId]
+        () => visibleRooms.find((room) => room.id === cardRoomId)?.name || '-',
+        [visibleRooms, cardRoomId]
     );
 
     const toggleSelect = (itemId: string) => {
@@ -147,7 +193,7 @@ const PrintAssetsPage = () => {
                 <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between print:hidden">
                     <div>
                         <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">Cetak & Manajemen Kode Inventaris</h2>
-                        <p className="text-slate-500">Cetak label, kartu inventaris, dan atur patokan kode inventaris.</p>
+                        <p className="text-slate-500">Cetak label, kartu inventaris, dan atur patokan manajemen kode inventaris.</p>
                     </div>
                     {mode !== 'codes' && (
                         <button
@@ -197,7 +243,7 @@ const PrintAssetsPage = () => {
                                 className="px-3 py-2 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-[#000080]"
                             >
                                 <option value="all">Semua Ruangan</option>
-                                {rooms.map((room) => (
+                                {visibleRooms.map((room) => (
                                     <option key={room.id} value={room.id}>{room.name}</option>
                                 ))}
                             </select>
@@ -230,13 +276,23 @@ const PrintAssetsPage = () => {
                                             <img src={logo} alt="logo" className="w-5 h-5 object-contain" />
                                             <span>SMPK SANTA MARIA 2</span>
                                         </div>
-                                        <div className="border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-700 text-center flex flex-col items-center justify-center">
+                                        <div className="border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-700 text-center flex flex-col items-center justify-center min-w-0">
                                             <span>No. Inventaris:</span>
-                                            <span className="text-lg md:text-2xl font-extrabold tracking-wide leading-none whitespace-nowrap">{item.sku}</span>
+                                            <span
+                                                title={item.sku}
+                                                className={`block w-full font-extrabold leading-tight tracking-tight whitespace-normal break-all ${getSkuTextSizeClass(item.sku)}`}
+                                            >
+                                                {item.sku}
+                                            </span>
                                         </div>
                                         <div className="border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-700 text-center flex items-center justify-center">Nama Barang: {item.name}</div>
                                         <div className="border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-700 text-center flex items-center justify-center">Ruangan: {item.roomName}</div>
-                                        <div className="border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-700 text-center flex items-center justify-center">Tahun: {currentYear}</div>
+                                        <div className="border border-slate-300 rounded-lg px-3 py-2 font-semibold text-slate-700 text-center flex flex-col items-center justify-center leading-tight">
+                                            <span>Tahun: {currentYear}</span>
+                                            <span className="text-xs font-semibold text-slate-600 mt-1">
+                                                Tgl Pengadaan: {formatDateId(item.procurementDate)}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -258,7 +314,7 @@ const PrintAssetsPage = () => {
                                 className="px-3 py-2 rounded-lg border border-slate-200 outline-none focus:ring-2 focus:ring-[#000080] max-w-md"
                             >
                                 <option value="">Pilih ruangan untuk kartu inventaris</option>
-                                {rooms.map((room) => (
+                                {visibleRooms.map((room) => (
                                     <option key={room.id} value={room.id}>{room.name}</option>
                                 ))}
                             </select>

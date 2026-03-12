@@ -5,8 +5,12 @@ import { InventoryProvider } from './context/InventoryContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import { PortalProvider } from './context/PortalContext';
+import { NotificationProvider } from './context/NotificationContext';
+import { AccessMatrixProvider, useAccessMatrix } from './context/AccessMatrixContext';
+import type { FeatureKey } from './context/AccessMatrixContext';
 
-import DashboardLayout from './components/DashboardLayout';
+import DashboardLayout from './layouts/DashboardLayout';
+import AdminLayout from './layouts/AdminLayout';
 import RoomList from './pages/RoomList';
 import RoomDetail from './pages/RoomDetail';
 import ServiceRequests from './pages/ServiceRequests';
@@ -18,6 +22,9 @@ import UserManagement from './pages/admin/UserManagement';
 import ReportPage from './pages/admin/ReportPage';
 import OperationsPage from './pages/admin/OperationsPage';
 import PrintAssetsPage from './pages/admin/PrintAssetsPage';
+import AdminDashboardPage from './pages/admin/AdminDashboardPage';
+import SystemLogsPage from './pages/admin/SystemLogsPage';
+import ItemManagementPage from './pages/admin/ItemManagementPage';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -27,46 +34,137 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const HomeRoute = () => {
+  const { isAuthenticated, user } = useAuth();
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return <LandingPage />;
+};
+
+const InventoryRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user } = useAuth();
+
+  if (user?.role === 'admin') {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, user } = useAuth();
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user.role !== 'admin') {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const FeatureRoute = ({
+  feature,
+  requireEdit = false,
+  children,
+}: {
+  feature: FeatureKey;
+  requireEdit?: boolean;
+  children: React.ReactNode;
+}) => {
+  const { isAuthenticated, user } = useAuth();
+  const { canSee, canEditFeature, loading } = useAccessMatrix();
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (loading) {
+    return null;
+  }
+
+  const isAllowed = requireEdit
+    ? canEditFeature(feature, user.role)
+    : canSee(feature, user.role);
+
+  if (!isAllowed) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 const App = () => {
   return (
     <AuthProvider>
-      <PortalProvider>
-        <ToastProvider>
-          <InventoryProvider>
-            <ServiceRequestProvider>
-              <Router>
-                <Routes>
-                  <Route path="/login" element={<LoginPage />} />
+      <AccessMatrixProvider>
+        <PortalProvider>
+          <ToastProvider>
+            <NotificationProvider>
+              <InventoryProvider>
+                <ServiceRequestProvider>
+                  <Router>
+                    <Routes>
+                      <Route path="/login" element={<LoginPage />} />
 
-                  {/* Protected Root: Landing Page (Portal Selection) */}
-                  <Route path="/" element={
-                    <ProtectedRoute>
-                      <LandingPage />
-                    </ProtectedRoute>
-                  } />
+                      {/* Protected Root: Landing Page (Portal Selection) */}
+                      <Route path="/" element={
+                        <ProtectedRoute>
+                          <HomeRoute />
+                        </ProtectedRoute>
+                      } />
 
-                  <Route path="/dashboard" element={
-                    <ProtectedRoute>
-                      <DashboardLayout />
-                    </ProtectedRoute>
-                  }>
-                    <Route index element={<Overview />} />
-                    <Route path="rooms" element={<RoomList />} />
-                    <Route path="rooms/:roomId" element={<RoomDetail />} />
-                    <Route path="service-requests" element={<ServiceRequests />} />
-                    <Route path="profile" element={<UserProfile />} />
-                    <Route path="admin/users" element={<UserManagement />} />
-                    <Route path="reports" element={<ReportPage />} />
-                    <Route path="print-assets" element={<PrintAssetsPage />} />
-                    <Route path="inventory-codes" element={<Navigate to="/dashboard/print-assets?tab=codes" replace />} />
-                    <Route path="operations" element={<OperationsPage />} />
-                  </Route>
-                </Routes>
-              </Router>
-            </ServiceRequestProvider>
-          </InventoryProvider>
-        </ToastProvider>
-      </PortalProvider>
+                      <Route path="/dashboard" element={
+                        <ProtectedRoute>
+                          <InventoryRoute>
+                            <FeatureRoute feature="dashboard">
+                              <DashboardLayout />
+                            </FeatureRoute>
+                          </InventoryRoute>
+                        </ProtectedRoute>
+                      }>
+                        <Route index element={<InventoryRoute><FeatureRoute feature="dashboard"><Overview /></FeatureRoute></InventoryRoute>} />
+                        <Route path="rooms" element={<InventoryRoute><FeatureRoute feature="rooms"><RoomList /></FeatureRoute></InventoryRoute>} />
+                        <Route path="rooms/:roomId" element={<InventoryRoute><FeatureRoute feature="rooms"><RoomDetail /></FeatureRoute></InventoryRoute>} />
+                        <Route path="service-requests" element={<InventoryRoute><FeatureRoute feature="service_requests"><ServiceRequests /></FeatureRoute></InventoryRoute>} />
+                        <Route path="profile" element={<UserProfile />} />
+                        <Route path="admin/users" element={<InventoryRoute><FeatureRoute feature="user_management"><UserManagement /></FeatureRoute></InventoryRoute>} />
+                        <Route path="reports" element={<InventoryRoute><FeatureRoute feature="reports"><ReportPage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="print-assets" element={<InventoryRoute><FeatureRoute feature="print_assets"><PrintAssetsPage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="inventory-codes" element={<InventoryRoute><FeatureRoute feature="print_assets"><Navigate to="/dashboard/print-assets?tab=codes" replace /></FeatureRoute></InventoryRoute>} />
+                        <Route path="items" element={<InventoryRoute><FeatureRoute feature="rooms"><ItemManagementPage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="operations" element={<InventoryRoute><FeatureRoute feature="operations"><OperationsPage /></FeatureRoute></InventoryRoute>} />
+                      </Route>
+
+                      <Route path="/admin" element={
+                        <AdminRoute>
+                          <FeatureRoute feature="dashboard">
+                            <AdminLayout />
+                          </FeatureRoute>
+                        </AdminRoute>
+                      }>
+                        <Route index element={<FeatureRoute feature="dashboard"><AdminDashboardPage /></FeatureRoute>} />
+                        <Route path="users" element={<FeatureRoute feature="user_management"><UserManagement /></FeatureRoute>} />
+                        <Route path="system-logs" element={<FeatureRoute feature="system_logs"><SystemLogsPage /></FeatureRoute>} />
+                        <Route path="profile" element={<UserProfile />} />
+                      </Route>
+                    </Routes>
+                  </Router>
+                </ServiceRequestProvider>
+              </InventoryProvider>
+            </NotificationProvider>
+          </ToastProvider>
+        </PortalProvider>
+      </AccessMatrixProvider>
     </AuthProvider>
   );
 };

@@ -1,11 +1,19 @@
 <?php
 class Database
 {
-    private $host = "localhost";
-    private $db_name = "inventory_db";
-    private $username = "root";
-    private $password = "";
+    private $host;
+    private $db_name;
+    private $username;
+    private $password;
     public $conn;
+
+    public function __construct() {
+        // Use environment variables (from Docker) or fallback to XAMPP/Laragon defaults
+        $this->host = getenv('DB_HOST') ?: "localhost";
+        $this->db_name = getenv('DB_DATABASE') ?: "inventory_db";
+        $this->username = getenv('DB_USERNAME') ?: "root";
+        $this->password = getenv('DB_PASSWORD') !== false ? getenv('DB_PASSWORD') : "";
+    }
 
     public function getConnection()
     {

@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { User } from '../types';
+import { getAuthHeaders, getAuthToken, isUnauthorizedResponse } from '../utils/api';
 
 interface AuthContextType {
     user: User | null;
     isAuthenticated: boolean;
     allUsers: User[];
-    login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string; redirectPath?: string }>;
     logout: () => void;
     registerUser: (newUser: Omit<User, 'id'>, password: string) => Promise<void>;
     updateUser: (id: string, data: Partial<User>, password?: string) => Promise<void>;
@@ -60,10 +61,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [allUsers, setAllUsers] = useState<User[]>([]);
 
     const fetchUsers = async () => {
-        const response = await fetch(USERS_ENDPOINT);
+        const response = await fetch(USERS_ENDPOINT, {
+            headers: getAuthHeaders()
+        });
         const payload = await response.json().catch(() => ({})) as { status?: string; users?: unknown; message?: string };
 
         if (!response.ok || payload.status === 'error') {
+            if (response.status === 401) {
+                setUser(null);
+                setAllUsers([]);
+                localStorage.removeItem('auth_token');
+                return;
+            }
+
+            if (response.status === 403 || isUnauthorizedResponse(response.status)) {
+                setAllUsers([]);
+                return;
+            }
             throw new Error(typeof payload.message === 'string' ? payload.message : 'Gagal memuat daftar user.');
         }
 
@@ -87,10 +101,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     useEffect(() => {
+        if (!user || !getAuthToken()) {
+            setAllUsers([]);
+            return;
+        }
+
         void fetchUsers().catch((error) => {
             console.error('Failed to fetch users:', error);
         });
-    }, []);
+    }, [user?.id]);
 
     useEffect(() => {
         if (user) {
@@ -129,7 +148,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await fetchUsers().catch((error) => {
                 console.error('Failed to refresh users after login:', error);
             });
-            return { success: true };
+            return { success: true, redirectPath: loggedInUser.role === 'admin' ? '/admin' : '/' };
         } catch (error) {
             console.error('Login error:', error);
             return {
@@ -141,13 +160,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const logout = () => {
         setUser(null);
+        setAllUsers([]);
         localStorage.removeItem('auth_token');
     };
 
     const registerUser = async (newUser: Omit<User, 'id'>, password: string) => {
         const response = await fetch(USERS_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
                 username: newUser.username,
                 name: newUser.name,
@@ -179,7 +199,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         const response = await fetch(USERS_ENDPOINT, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(requestBody)
         });
 
@@ -203,7 +223,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const deleteUser = async (id: string) => {
         const response = await fetch(USERS_ENDPOINT, {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ id })
         });
 

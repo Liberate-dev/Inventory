@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, Box, Activity, Zap, Scissors, Server, Printer, AlertTriangle, RefreshCw, CheckSquare, Square } from 'lucide-react';
-import type { Container, Item, ItemLog, ServiceRequest } from '../types';
-import { useServiceRequests } from '../context/ServiceRequestContext';
-import { useLanguage } from '../context/LanguageContext';
-import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
-import { useItemForm } from '../hooks/useItemForm';
+import type { Container, Item, ItemLog, ServiceRequest } from '../../types';
+import { useServiceRequests } from '../../context/ServiceRequestContext';
+import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { useAccessMatrix } from '../../context/AccessMatrixContext';
+import { useToast } from '../../context/ToastContext';
+import { useItemForm } from '../../hooks/useItemForm';
+import { ItemConditionBadge } from '../common/ItemConditionBadge';
 
 interface ContainerDetailModalProps {
     container: Container;
@@ -129,8 +131,11 @@ const formatLogDetails = (action: string, details: unknown): string => {
 const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onClose, onUpdate }: ContainerDetailModalProps) => {
     const { addRequest, requests } = useServiceRequests();
     const { user } = useAuth();
+    const { canEditFeature, canSee } = useAccessMatrix();
     const { t } = useLanguage();
     const { showToast } = useToast();
+    const canEditInventory = user ? canEditFeature('rooms', user.role) : false;
+    const canReportItems = user ? canSee('service_requests', user.role) : false;
     const [items, setItems] = useState<Item[]>(container.items || []);
     const [isFormOpen, setIsFormOpen] = useState(false);
 
@@ -165,6 +170,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     };
 
     const handleOpenAdd = () => {
+        if (!canEditInventory) {
+            showToast('Anda tidak memiliki izin untuk menambah item.', 'error');
+            return;
+        }
         resetForm();
         setIsFormOpen(true);
     };
@@ -178,6 +187,12 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     const { add, remove, update } = parameterActions;
 
     const handleSaveTitle = () => {
+        if (!canEditInventory) {
+            setEditTitle(container.name);
+            setIsEditingTitle(false);
+            showToast('Anda tidak memiliki izin untuk mengubah wadah.', 'error');
+            return;
+        }
         if (editTitle.trim() && editTitle !== container.name) {
             onUpdate({ ...container, name: editTitle.trim() });
         } else {
@@ -187,6 +202,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     };
 
     const handleSave = () => {
+        if (!canEditInventory) {
+            showToast('Anda tidak memiliki izin untuk menyimpan item.', 'error');
+            return;
+        }
         if (!formData.name) return;
 
         let updatedItems = [...items];
@@ -242,6 +261,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     };
 
     const handleDeleteItem = (itemId: string) => {
+        if (!canEditInventory) {
+            showToast('Anda tidak memiliki izin untuk menghapus item.', 'error');
+            return;
+        }
         const updatedItems = items.filter(i => i.id !== itemId);
         setItems(updatedItems);
         onUpdate({ ...container, items: updatedItems });
@@ -249,11 +272,25 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 
     const [isReportOpen, setIsReportOpen] = useState(false);
     const [reportReason, setReportReason] = useState('');
+    const openedFromDeepLink = Boolean(initialItemId);
 
     const handleReportIssue = () => {
         if (!isEditing) return; // Only report active items
         setReportReason('');
         setIsReportOpen(true);
+    };
+
+    const handleCloseForm = () => {
+        resetForm();
+        setIsReportOpen(false);
+        setReportReason('');
+
+        if (openedFromDeepLink) {
+            onClose();
+            return;
+        }
+
+        setIsFormOpen(false);
     };
 
     const confirmReport = async () => {
@@ -305,13 +342,15 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     const selectedItemLogs = editingId
         ? (items.find((item) => item.id === editingId)?.logs ?? []).filter((log) => log.action !== 'INITIALIZED')
         : [];
+    const isReadOnlyMode = isFormOpen && isEditing && !canEditInventory;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}>
             <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
                 className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]"
             >
                 {/* Header */}
@@ -334,7 +373,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                             ) : (
                                 <h3
                                     className="text-xl font-bold text-gray-900 cursor-text hover:text-indigo-600 hover:underline decoration-dashed decoration-indigo-300 underline-offset-4"
-                                    onClick={() => setIsEditingTitle(true)}
+                                    onClick={() => {
+                                        if (!canEditInventory) return;
+                                        setIsEditingTitle(true);
+                                    }}
                                     title="Click to edit name"
                                 >
                                     {container.name}
@@ -355,12 +397,14 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                             <Box size={64} className="mx-auto mb-4 opacity-20" />
                             <p className="text-lg font-medium text-gray-500">{t('container_empty')}</p>
                             <p className="text-sm mb-6">{t('container_empty_desc')}</p>
-                            <button
-                                onClick={handleOpenAdd}
-                                className="px-6 py-2.5 text-white bg-indigo-600 font-medium hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
-                            >
-                                {t('add_first_item')}
-                            </button>
+                            {canEditInventory && (
+                                <button
+                                    onClick={handleOpenAdd}
+                                    className="px-6 py-2.5 text-white bg-indigo-600 font-medium hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                                >
+                                    {t('add_first_item')}
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
@@ -371,11 +415,12 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                     onEdit={() => handleOpenEdit(item)}
                                     onDelete={() => handleDeleteItem(item.id)}
                                     hasActiveRequest={isItemUnderMaintenance(item.id)}
+                                    canEdit={canEditInventory}
                                 />
                             ))}
 
                             {/* Add Item Button Card */}
-                            {!isFormOpen && (
+                            {!isFormOpen && canEditInventory && (
                                 <button
                                     onClick={handleOpenAdd}
                                     className="group border-2 border-dashed border-gray-300 rounded-2xl flex flex-col items-center justify-center p-6 text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50/30 transition-all h-full min-h-[180px]"
@@ -396,21 +441,25 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: 20 }}
-                                className="fixed inset-0 z-10 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md absolute inset-0"
+                                onClick={handleCloseForm}
+                                className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-white/80 backdrop-blur-md"
                             >
-                                <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 p-6 relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                                <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-100 relative max-h-[90vh] flex flex-col overflow-hidden"
+                                >
                                     <button
-                                        onClick={() => { resetForm(); setIsFormOpen(false); }}
+                                        onClick={handleCloseForm}
                                         className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
                                     >
                                         <X size={20} />
                                     </button>
 
-                                    <h4 className="text-xl font-bold text-gray-800 mb-6 border-b border-gray-100 pb-4">
-                                        {isEditing ? t('edit_item_details') : t('add_new_item')}
+                                    <h4 className="shrink-0 px-6 pt-6 pb-4 pr-14 text-xl font-bold text-gray-800 border-b border-gray-100">
+                                        {isReadOnlyMode ? 'Detail Item' : isEditing ? t('edit_item_details') : t('add_new_item')}
                                     </h4>
 
-                                    <div className="space-y-6">
+                                    <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar px-6 pt-6 pb-6">
 
                                         {/* SECTION 1: IDENTIFICATION */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -420,6 +469,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                     type="text"
                                                     value={formData.name}
                                                     onChange={(e) => updateField('name', e.target.value)}
+                                                    disabled={isReadOnlyMode}
                                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-bold text-gray-800"
                                                     placeholder="e.g. Dell Monitor 24inch"
                                                     autoFocus
@@ -433,11 +483,13 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                         type="text"
                                                         value={formData.sku}
                                                         onChange={(e) => updateField('sku', e.target.value)}
+                                                        disabled={isReadOnlyMode}
                                                         className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm uppercase"
                                                         placeholder="INV-..."
                                                     />
                                                     <button
                                                         onClick={() => { void generateSku({ roomId, roomName }); }}
+                                                        disabled={isReadOnlyMode}
                                                         className="p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200"
                                                         title="Generate SKU"
                                                     >
@@ -452,6 +504,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                     type="text"
                                                     value={formData.category}
                                                     onChange={(e) => updateField('category', e.target.value)}
+                                                    disabled={isReadOnlyMode}
                                                     list="category-suggestions"
                                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                                                     placeholder="e.g. Hardware"
@@ -471,6 +524,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                             <div className="flex items-center gap-2 mb-4">
                                                 <button
                                                     onClick={() => updateField('isConsumable', !formData.isConsumable)}
+                                                    disabled={isReadOnlyMode}
                                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${formData.isConsumable ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400'}`}
                                                 >
                                                     {formData.isConsumable ? <CheckSquare size={16} /> : <Square size={16} />}
@@ -490,6 +544,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                         pattern="[0-9]*"
                                                         placeholder="e.g. 1"
                                                         value={formData.quantity}
+                                                        disabled={isReadOnlyMode}
                                                         onChange={(e) => {
                                                             const val = e.target.value.replace(/\D/g, '');
                                                             updateField('quantity', val ? parseInt(val, 10) : 0);
@@ -503,6 +558,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                         type="text"
                                                         value={formData.unit}
                                                         onChange={(e) => updateField('unit', e.target.value)}
+                                                        disabled={isReadOnlyMode}
                                                         className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                                                         placeholder="Pcs"
                                                     />
@@ -517,6 +573,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                             pattern="[0-9]*"
                                                             placeholder="e.g. 0"
                                                             value={formData.minStock}
+                                                            disabled={isReadOnlyMode}
                                                             onChange={(e) => {
                                                                 const val = e.target.value.replace(/\D/g, '');
                                                                 updateField('minStock', val ? parseInt(val, 10) : 0);
@@ -532,13 +589,15 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                         <div>
                                             <div className="flex justify-between items-end mb-2">
                                                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">{t('params_specs')}</label>
-                                                <div className="flex gap-1">
-                                                    {['Brand', 'Model', 'S/N'].map(s => (
-                                                        <button key={s} onClick={() => add(s, '')} className="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 transition-colors">
-                                                            + {s}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                                {canEditInventory && (
+                                                    <div className="flex gap-1">
+                                                        {['Brand', 'Model', 'S/N'].map(s => (
+                                                            <button key={s} onClick={() => add(s, '')} className="text-[10px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 transition-colors">
+                                                                + {s}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="space-y-2">
@@ -547,23 +606,29 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                         <input
                                                             placeholder="Label (e.g. Brand)"
                                                             value={param.label}
+                                                            disabled={isReadOnlyMode}
                                                             onChange={(e) => update(idx, 'label', e.target.value)}
                                                             className="w-1/3 px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-indigo-500 bg-gray-50"
                                                         />
                                                         <input
                                                             placeholder="Value (e.g. Dell)"
                                                             value={param.value}
+                                                            disabled={isReadOnlyMode}
                                                             onChange={(e) => update(idx, 'value', e.target.value)}
                                                             className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg outline-none focus:border-indigo-500"
                                                         />
-                                                        <button onClick={() => remove(idx)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                                                            <Trash2 size={16} />
-                                                        </button>
+                                                        {canEditInventory && (
+                                                            <button onClick={() => remove(idx)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 ))}
-                                                <button onClick={() => add()} className="w-full py-2 border-2 border-dashed border-gray-200 rounded-lg text-gray-400 text-sm font-bold hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all">
-                                                    {t('add_custom_param')}
-                                                </button>
+                                                {canEditInventory && (
+                                                    <button onClick={() => add()} className="w-full py-2 border-2 border-dashed border-gray-200 rounded-lg text-gray-400 text-sm font-bold hover:border-indigo-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all">
+                                                        {t('add_custom_param')}
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 
@@ -572,7 +637,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                             <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{t('component_history')}</h5>
                                             {isEditing ? (
                                                 <div className="max-h-36 overflow-y-auto space-y-2 pr-1">
-                                                    {selectedItemLogs.map((log) => (
+                                                    {[...selectedItemLogs].reverse().map((log) => (
                                                         <div key={log.id} className="border border-slate-200 rounded-lg bg-white p-2.5">
                                                             <div className="text-[11px] text-slate-500">
                                                                 {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
@@ -595,15 +660,16 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                 <AlertTriangle size={12} /> {t('condition_status_hint')}
                                             </p>
                                             <div className="flex gap-2">
-                                                <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${formData.condition === 'good' ? 'bg-emerald-100 text-emerald-700' : formData.condition === 'service' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                    {formData.condition}
-                                                </span>
+                                                <ItemConditionBadge condition={formData.condition} className="px-3 py-1 text-xs uppercase" />
                                             </div>
                                         </div>
 
                                         {/* Action Buttons */}
-                                        <div className="flex items-stretch justify-between pt-4 gap-4 sticky bottom-0 bg-white border-t border-gray-100">
-                                            {isEditing && !activeRequest ? (
+                                    </div>
+
+                                    <div className="shrink-0 border-t border-gray-100 bg-white px-6 py-4">
+                                        <div className="flex items-stretch justify-between gap-4">
+                                            {isEditing && !activeRequest && canReportItems ? (
                                                 <button
                                                     onClick={handleReportIssue}
                                                     className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl font-bold hover:bg-red-100 transition-colors flex flex-col items-center justify-center text-center gap-1 h-auto min-w-[80px]"
@@ -617,18 +683,20 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 
                                             <div className="flex gap-3 flex-1 justify-end items-center">
                                                 <button
-                                                    onClick={() => { resetForm(); setIsFormOpen(false); }}
+                                                    onClick={handleCloseForm}
                                                     className="px-6 py-3 text-gray-600 font-bold hover:bg-gray-50 rounded-xl transition-colors"
                                                 >
                                                     {t('btn_cancel')}
                                                 </button>
-                                                <button
-                                                    onClick={handleSave}
-                                                    disabled={!formData.name}
-                                                    className="flex-1 max-w-[200px] py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
-                                                >
-                                                    {isEditing ? t('save_changes') : t('add_item')}
-                                                </button>
+                                                {canEditInventory && (
+                                                    <button
+                                                        onClick={handleSave}
+                                                        disabled={!formData.name}
+                                                        className="flex-1 max-w-[200px] py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+                                                    >
+                                                        {isEditing ? t('save_changes') : t('add_item')}
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -642,9 +710,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: 20 }}
+                                onClick={() => setIsReportOpen(false)}
                                 className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-white/10 backdrop-blur-sm"
                             >
-                                <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 p-6">
+                                <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 p-6">
                                     <h4 className="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
                                         <AlertTriangle className="text-amber-500" size={20} /> {t('report_issue_title')}
                                     </h4>
@@ -672,7 +741,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 
 // 2D Item Card Component matching user design
 // 2D ItemCard Component
-const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, onEdit: () => void, onDelete: () => void, hasActiveRequest?: boolean }) => {
+const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest, canEdit = true }: { item: Item, onEdit: () => void, onDelete: () => void, hasActiveRequest?: boolean, canEdit?: boolean }) => {
     const { t } = useLanguage();
 
     return (
@@ -680,15 +749,17 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, on
             layout
             onClick={onEdit}
             whileHover={{ y: -4 }}
-            className={`group relative bg-white p-5 rounded-2xl shadow-sm border hover:shadow-lg cursor-pointer transition-all flex flex-col items-center ${hasActiveRequest ? 'border-amber-300 shadow-amber-100 ring-2 ring-amber-200' : 'border-gray-100 hover:border-indigo-100'
+            className={`group relative bg-white p-5 rounded-2xl shadow-sm border hover:shadow-lg transition-all flex flex-col items-center cursor-pointer ${hasActiveRequest ? 'border-amber-300 shadow-amber-100 ring-2 ring-amber-200' : 'border-gray-100 hover:border-indigo-100'
                 }`}
         >
-            <button
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                className="absolute top-3 right-3 p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-            >
-                <Trash2 size={16} />
-            </button>
+            {canEdit && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                    className="absolute top-3 right-3 p-1.5 text-gray-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                >
+                    <Trash2 size={16} />
+                </button>
+            )}
 
             {hasActiveRequest && (
                 <div className="absolute top-3 left-3 text-amber-500 animate-pulse">
@@ -711,11 +782,7 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest }: { item: Item, on
                 )}
             </div>
 
-            <div className={`px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider ${item.condition === 'good' ? 'bg-emerald-100 text-emerald-700' :
-                item.condition === 'service' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                }`}>
-                {item.condition}
-            </div>
+            <ItemConditionBadge condition={item.condition} className="px-3 py-1 text-[10px] uppercase tracking-wider" />
         </motion.div>
     );
 };

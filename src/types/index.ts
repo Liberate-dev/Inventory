@@ -62,6 +62,7 @@ export interface ServiceRequest {
     requestDate: string;
     resolutionDate?: string;
     rejectionReason?: string;
+    resolutionOutcome?: 'repaired' | 'broken';
 }
 
 export interface Container {

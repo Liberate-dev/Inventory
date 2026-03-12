@@ -1,6 +1,7 @@
 <?php
 include_once '../config/cors.php';
 include_once '../config/database.php';
+include_once '../config/auth.php';
 
 header('Content-Type: application/json');
 
@@ -31,7 +32,18 @@ if(isset($data->username) && isset($data->password)) {
         // Verify password
         // Note: For initial 'admin' user inserted via SQL, the hash is for 'password'
         if(password_verify($password, $row['password'])) {
-            
+            authWriteSystemLog(
+                $db,
+                isset($row['id']) ? (int) $row['id'] : null,
+                'auth.login_success',
+                [
+                    'username' => $row['username'],
+                    'role' => $row['role']
+                ],
+                'user',
+                isset($row['id']) ? (string) $row['id'] : null
+            );
+
             // Remove password from response
             unset($row['password']);
 
@@ -50,15 +62,38 @@ if(isset($data->username) && isset($data->password)) {
                 "success" => true,
                 "message" => "Login successful.",
                 "user" => $user,
-                "token" =>  base64_encode($user['username'] . ':' . time()) // Simple mock token
+                "token" => createAuthToken($user)
             ));
         } else {
-            echo json_encode(array("success" => false, "message" => "Invalid password."));
+            authWriteSystemLog(
+                $db,
+                isset($row['id']) ? (int) $row['id'] : null,
+                'auth.login_failed',
+                [
+                    'username' => $row['username']
+                ],
+                'user',
+                isset($row['id']) ? (string) $row['id'] : null
+            );
+            http_response_code(401);
+            echo json_encode(array("success" => false, "message" => "Username atau password salah."));
         }
     } else {
-        echo json_encode(array("success" => false, "message" => "User not found."));
+        authWriteSystemLog(
+            $db,
+            null,
+            'auth.login_failed',
+            [
+                'username' => (string) $username
+            ],
+            'user',
+            null
+        );
+        http_response_code(401);
+        echo json_encode(array("success" => false, "message" => "Username atau password salah."));
     }
 } else {
+    http_response_code(400);
     echo json_encode(array("success" => false, "message" => "Incomplete data."));
 }
 ?>

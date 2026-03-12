@@ -1,6 +1,7 @@
 <?php
 include_once '../config/cors.php';
 include_once '../config/database.php';
+include_once '../config/auth.php';
 
 header('Content-Type: application/json');
 
@@ -46,9 +47,14 @@ $db->exec(
 );
 
 if ($method === 'GET') {
+    $authUser = authCurrentUser($db, true);
     $userId = prefId($_GET['user_id'] ?? null);
     if ($userId === null) {
         respondPref(400, ['status' => 'error', 'message' => 'Invalid user_id.']);
+    }
+
+    if (!authIsSelf($authUser, $userId) && !authHasFeatureAccess($authUser, 'user_management', 'view', $db)) {
+        respondPref(403, ['status' => 'error', 'message' => 'Access denied.']);
     }
 
     $stmt = $db->prepare("SELECT user_id, language, portal_type FROM user_preferences WHERE user_id = :user_id LIMIT 1");
@@ -78,9 +84,14 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PUT') {
+    $authUser = authCurrentUser($db, true);
     $userId = prefId($payload['userId'] ?? $payload['user_id'] ?? null);
     if ($userId === null) {
         respondPref(400, ['status' => 'error', 'message' => 'Invalid user id for preferences update.']);
+    }
+
+    if (!authIsSelf($authUser, $userId) && !authHasFeatureAccess($authUser, 'user_management', 'full', $db)) {
+        respondPref(403, ['status' => 'error', 'message' => 'Access denied.']);
     }
 
     $language = isset($payload['language']) ? (string)$payload['language'] : null;

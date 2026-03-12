@@ -22,7 +22,7 @@ const LoginPage = () => {
         const result = await login(identifier, password);
 
         if (result.success) {
-            navigate('/');
+            navigate(result.redirectPath || '/');
         } else {
             setError(result.error || 'Login failed');
             setIsLoading(false);
@@ -122,7 +122,7 @@ const LoginPage = () => {
                         <p className="text-xs text-slate-400 text-center font-medium mb-2 uppercase tracking-wider">
                             Akun Demo
                         </p>
-                        <p className="text-center text-xs text-slate-500">admin / admin</p>
+                        <p className="text-center text-xs text-slate-500">admin / password</p>
                     </div>
                 </div>
             </div>

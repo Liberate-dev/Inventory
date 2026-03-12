@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import fs from 'node:fs';
 
+const OUTPUT_PATH = 'docker/mysql/init/2-seed.sql';
 const PASSWORD_HASH = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi'; // password
 
 const users = [
@@ -305,6 +306,7 @@ sql += '\n';
 sql += insertSQL('service_requests', ['id', 'item_id', 'requester_id', 'description', 'status', 'request_date', 'resolution_date', 'rejection_reason'], serviceRequests);
 sql += '\nCOMMIT;\n';
 
-fs.writeFileSync('seed_data.sql', sql);
-console.log(`Generated seed_data.sql`);
+fs.mkdirSync('docker/mysql/init', { recursive: true });
+fs.writeFileSync(OUTPUT_PATH, sql);
+console.log(`Generated ${OUTPUT_PATH}`);
 console.log(`Users=${users.length}, Rooms=${rooms.length}, Containers=${containers.length}, Items=${items.length}, Logs=${itemLogs.length}, Requests=${serviceRequests.length}`);

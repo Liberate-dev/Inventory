@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Save, Wand2 } from 'lucide-react';
 import { buildInventoryCode, DEFAULT_INVENTORY_CODE_SETTINGS, deriveRoomCode, type InventoryCodeSettings } from '../../utils/inventoryCode';
+import { useInventory } from '../../context/InventoryContext';
+import { useAuth } from '../../context/AuthContext';
+import { useAccessMatrix } from '../../context/AccessMatrixContext';
+import { getAuthHeaders } from '../../utils/api';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
 const INVENTORY_CODES_ENDPOINT = `${API_BASE_URL}/inventory/inventory_codes.php`;
@@ -12,16 +16,22 @@ interface InventoryCodeManagementPageProps {
 }
 
 const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManagementPageProps) => {
+    const { refreshRooms } = useInventory();
+    const { user } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
     const [settings, setSettings] = useState<InventoryCodeSettings>(DEFAULT_INVENTORY_CODE_SETTINGS);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [normalizing, setNormalizing] = useState<NormalizeMode | null>(null);
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const canManageCodes = user ? canEditFeature('print_assets', user.role) : false;
 
     const loadSettings = async () => {
         setLoading(true);
         try {
-            const response = await fetch(INVENTORY_CODES_ENDPOINT);
+            const response = await fetch(INVENTORY_CODES_ENDPOINT, {
+                headers: getAuthHeaders()
+            });
             const payload = await response.json().catch(() => ({})) as {
                 status?: string;
                 settings?: Partial<InventoryCodeSettings>;
@@ -54,9 +64,13 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
     const saveSettings = async () => {
         setSaving(true);
         try {
+            if (!canManageCodes) {
+                throw new Error('Mode akses Anda hanya baca untuk pengaturan kode inventaris.');
+            }
+
             const response = await fetch(INVENTORY_CODES_ENDPOINT, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(settings)
             });
             const payload = await response.json().catch(() => ({})) as {
@@ -93,9 +107,13 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
     const runNormalization = async (mode: NormalizeMode) => {
         setNormalizing(mode);
         try {
+            if (!canManageCodes) {
+                throw new Error('Mode akses Anda hanya baca untuk normalisasi kode inventaris.');
+            }
+
             const response = await fetch(INVENTORY_CODES_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     action: 'normalize',
                     mode
@@ -127,6 +145,14 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
 
             const updated = payload.result?.updated ?? 0;
             const total = payload.result?.total ?? 0;
+
+            // Re-sync inventory cache so updated SKU codes are visible immediately without manual page refresh.
+            try {
+                await refreshRooms();
+            } catch {
+                // Normalization already succeeded on backend; ignore cache refresh failure.
+            }
+
             setFeedback({
                 type: 'success',
                 message: `Normalisasi selesai: ${updated} dari ${total} item diperbarui.`
@@ -257,7 +283,7 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
                             <div className="flex flex-wrap gap-3 pt-2">
                                 <button
                                     onClick={() => { void saveSettings(); }}
-                                    disabled={saving}
+                                    disabled={saving || !canManageCodes}
                                     className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#000080] text-white rounded-xl font-bold hover:bg-[#000060] disabled:opacity-60"
                                 >
                                     {saving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
@@ -298,7 +324,7 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
                         <div className="space-y-2">
                             <button
                                 onClick={() => { void runNormalization('all'); }}
-                                disabled={normalizing !== null}
+                                disabled={normalizing !== null || !canManageCodes}
                                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 text-white font-bold hover:bg-amber-600 disabled:opacity-60"
                             >
                                 {normalizing === 'all' ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
@@ -306,7 +332,7 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
                             </button>
                             <button
                                 onClick={() => { void runNormalization('missing'); }}
-                                disabled={normalizing !== null}
+                                disabled={normalizing !== null || !canManageCodes}
                                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 disabled:opacity-60"
                             >
                                 {normalizing === 'missing' ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}

@@ -1,6 +1,10 @@
-import { createContext, useContext, useState, useEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import type { Room, ItemLog, Container, Item } from '../types';
 import { usePortal } from './PortalContext';
+import { useAuth } from './AuthContext';
+import { getAuthHeaders, getAuthToken } from '../utils/api';
+import { useToast } from './ToastContext';
+import { useNotifications } from './NotificationContext';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
 const ROOMS_ENDPOINT = `${API_BASE_URL}/inventory/rooms.php`;
@@ -34,7 +38,7 @@ interface InventoryContextType {
     // For Overview, we mainly need read access to all nested data
 
     stats: InventoryStats;
-    recentLogs: { roomName: string; itemName: string; log: ItemLog }[];
+    recentLogs: { roomId: string; roomName: string; itemName: string; log: ItemLog }[];
     loading: boolean;
     error: string | null;
 }
@@ -133,13 +137,30 @@ const normalizeRooms = (raw: unknown): Room[] => {
         .filter((room): room is Room => room !== null);
 };
 
+const flattenRoomItems = (rooms: Room[]) => rooms.flatMap((room) =>
+    room.containers.flatMap((container) =>
+        container.items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            roomName: room.name,
+            condition: item.condition,
+            status: item.status
+        }))
+    )
+);
+
 
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const { portalType } = usePortal();
+    const { isAuthenticated, user, logout } = useAuth();
+    const { showToast } = useToast();
+    const { addNotification } = useNotifications();
     const [rooms, setRooms] = useState<Room[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const previousRoomsRef = useRef<Room[]>([]);
+    const hasHydratedRoomsRef = useRef(false);
 
     const getErrorMessage = (fallback: string, payload?: { message?: unknown; debug?: unknown }) => {
         if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
@@ -154,10 +175,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const requestMutation = async (url: string, init: RequestInit, fallbackMessage: string) => {
         const response = await fetch(url, {
             ...init,
-            headers: {
+            headers: getAuthHeaders({
                 'Content-Type': 'application/json',
                 ...(init.headers ?? {})
-            }
+            })
         });
 
         const payload = await response.json().catch(() => ({})) as { status?: string; message?: string; debug?: string };
@@ -168,16 +189,63 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         return payload;
     };
 
-    const fetchRooms = async (showLoading = true) => {
+    const maybeNotifyRoomChanges = useCallback((nextRooms: Room[]) => {
+        if (!user || user.role !== 'guru') {
+            previousRoomsRef.current = nextRooms;
+            hasHydratedRoomsRef.current = true;
+            return;
+        }
+
+        if (!hasHydratedRoomsRef.current) {
+            previousRoomsRef.current = nextRooms;
+            hasHydratedRoomsRef.current = true;
+            return;
+        }
+
+        const previousVisibleRooms = previousRoomsRef.current.filter((room) => room.category === portalType);
+        const nextVisibleRooms = nextRooms.filter((room) => room.category === portalType);
+
+        const previousItems = new Map(flattenRoomItems(previousVisibleRooms).map((item) => [item.id, item]));
+
+        flattenRoomItems(nextVisibleRooms).forEach((item) => {
+            const previous = previousItems.get(item.id);
+            if (!previous) return;
+
+            const wasInService = previous.condition === 'service' || previous.status === 'maintenance';
+            const isInService = item.condition === 'service' || item.status === 'maintenance';
+
+            if (!wasInService && isInService) {
+                const message = `${item.name} di ${item.roomName} masuk service.`;
+                showToast(`Item masuk service: ${message}`, 'warning');
+                addNotification({
+                    title: 'Item Masuk Service',
+                    message,
+                    type: 'warning'
+                });
+            }
+        });
+
+        previousRoomsRef.current = nextRooms;
+    }, [addNotification, portalType, showToast, user]);
+
+    const fetchRooms = useCallback(async (showLoading = true) => {
         if (showLoading) {
             setLoading(true);
         }
 
         try {
-            const response = await fetch(ROOMS_ENDPOINT);
+            const response = await fetch(ROOMS_ENDPOINT, {
+                headers: getAuthHeaders()
+            });
+            if (response.status === 401) {
+                logout();
+                throw new Error('Sesi Anda telah berakhir. Silakan login kembali.');
+            }
             if (!response.ok) throw new Error('Failed to fetch inventory');
             const data = await response.json() as unknown;
-            setRooms(normalizeRooms(data));
+            const normalizedRooms = normalizeRooms(data);
+            maybeNotifyRoomChanges(normalizedRooms);
+            setRooms(normalizedRooms);
             setError(null);
         } catch (err) {
             console.error(err);
@@ -188,11 +256,34 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
                 setLoading(false);
             }
         }
-    };
+    }, [logout, maybeNotifyRoomChanges]);
 
     useEffect(() => {
+        if (!isAuthenticated || !getAuthToken()) {
+            setRooms([]);
+            setLoading(false);
+            previousRoomsRef.current = [];
+            hasHydratedRoomsRef.current = false;
+            return;
+        }
+
         void fetchRooms();
-    }, []);
+    }, [fetchRooms, isAuthenticated, user?.id]);
+
+    useEffect(() => {
+        if (!isAuthenticated || !getAuthToken()) return;
+
+        const intervalId = window.setInterval(() => {
+            if (document.visibilityState !== 'visible') return;
+            void fetchRooms(false).catch((error) => {
+                console.error('Failed to auto-refresh inventory:', error);
+            });
+        }, 15000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [fetchRooms, isAuthenticated]);
 
     // Effect for local storage REMOVED explicitly to rely on DB
     // (Or we can keep it as backup, but better to rely on API)
@@ -209,7 +300,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         grading: 100
     };
 
-    const recentLogs: { roomName: string; itemName: string; log: ItemLog }[] = [];
+    const recentLogs: { roomId: string; roomName: string; itemName: string; log: ItemLog }[] = [];
 
     // Calculate Stats & Collect Logs (using filtered rooms)
     filteredRooms.forEach(room => {
@@ -230,6 +321,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
                 if (item.logs) {
                     item.logs.forEach(log => {
                         recentLogs.push({
+                            roomId: room.id,
                             roomName: room.name,
                             itemName: item.name,
                             log
@@ -240,9 +332,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         });
     });
 
-    // Sort logs by date desc and take top 10
+    // Sort logs by date desc
     recentLogs.sort((a, b) => new Date(b.log.date).getTime() - new Date(a.log.date).getTime());
-    const limitedLogs = recentLogs.slice(0, 10);
 
     // Calculate grading (simple percentage of good items)
     if (stats.totalAssets > 0) {
@@ -461,10 +552,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         reorderContainers,
         refreshRooms: () => fetchRooms(false),
         stats,
-        recentLogs: limitedLogs,
+        recentLogs,
         loading,
         error
-    }), [filteredRooms, stats, limitedLogs, loading, error]);
+    }), [filteredRooms, stats, recentLogs, loading, error]);
 
     return (
         <InventoryContext.Provider value={value}>

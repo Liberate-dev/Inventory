@@ -1,6 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ServiceRequest, RequestStatus } from '../types';
 import { useAuth } from './AuthContext';
+import { getAuthHeaders, getAuthToken } from '../utils/api';
+import { useToast } from './ToastContext';
+import { useNotifications } from './NotificationContext';
 
 interface ServiceRequestContextType {
     requests: ServiceRequest[];
@@ -22,8 +25,12 @@ const REQUESTS_ENDPOINT = `${API_BASE_URL}/service_requests/requests.php`;
 const ServiceRequestContext = createContext<ServiceRequestContextType | undefined>(undefined);
 
 export const ServiceRequestProvider = ({ children }: { children: ReactNode }) => {
-    const { user, allUsers } = useAuth();
+    const { user, isAuthenticated, logout } = useAuth();
+    const { showToast } = useToast();
+    const { addNotification } = useNotifications();
     const [requests, setRequests] = useState<ServiceRequest[]>([]);
+    const previousRequestsRef = useRef<ServiceRequest[]>([]);
+    const hasHydratedRequestsRef = useRef(false);
 
     const toPositiveIntString = (value: unknown): string | null => {
         if (value === null || value === undefined) return null;
@@ -49,37 +56,10 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
         const direct = toPositiveIntString(user?.id);
         if (direct) return direct;
 
-        const byCurrentIdentity = user
-            ? allUsers.find((entry) => {
-                const id = toPositiveIntString(entry.id);
-                if (!id) return false;
-                return (
-                    (entry.username && entry.username === user.username) ||
-                    (entry.email && entry.email === user.email) ||
-                    (entry.name && entry.name === user.name)
-                );
-            })
-            : undefined;
-        const fromCurrentIdentity = toPositiveIntString(byCurrentIdentity?.id);
-        if (fromCurrentIdentity) return fromCurrentIdentity;
-
         const fallback = getSessionUserFallback();
         const fallbackId = toPositiveIntString(fallback?.id);
         if (fallbackId) return fallbackId;
-
-        const byFallbackIdentity = fallback
-            ? allUsers.find((entry) => {
-                const id = toPositiveIntString(entry.id);
-                if (!id) return false;
-                return (
-                    (fallback.username && entry.username === fallback.username) ||
-                    (fallback.email && entry.email === fallback.email) ||
-                    (fallback.name && entry.name === fallback.name)
-                );
-            })
-            : undefined;
-
-        return toPositiveIntString(byFallbackIdentity?.id);
+        return null;
     };
 
     const resolveRequesterName = (provided?: string): string | null => {
@@ -90,8 +70,73 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
         return null;
     };
 
-    const fetchRequests = async () => {
-        const response = await fetch(REQUESTS_ENDPOINT);
+    const maybeNotifyRequestChanges = useCallback((nextRequests: ServiceRequest[]) => {
+        if (!user) return;
+
+        const previousRequests = previousRequestsRef.current;
+        if (!hasHydratedRequestsRef.current) {
+            previousRequestsRef.current = nextRequests;
+            hasHydratedRequestsRef.current = true;
+            return;
+        }
+
+        const previousMap = new Map(previousRequests.map((request) => [request.id, request]));
+
+        if (user.role === 'sarpras') {
+            nextRequests
+                .filter((request) => !previousMap.has(request.id))
+                .forEach((request) => {
+                    const message = `${request.componentName} di ${request.roomName || request.stationName || 'lokasi tidak diketahui'}`;
+                    showToast(
+                        `Service request baru: ${message}`,
+                        'warning'
+                    );
+                    addNotification({
+                        title: 'Service Request Baru',
+                        message,
+                        type: 'warning'
+                    });
+                });
+        }
+
+        if (user.role === 'kepala_lab') {
+            nextRequests.forEach((request) => {
+                const previous = previousMap.get(request.id);
+                if (!previous || previous.status === request.status) return;
+
+                if (request.status === 'accepted') {
+                    const message = `Permintaan layanan untuk ${request.componentName} telah diterima.`;
+                    showToast(message, 'success');
+                    addNotification({
+                        title: 'Permintaan Diterima',
+                        message,
+                        type: 'success'
+                    });
+                }
+
+                if (request.status === 'denied') {
+                    const message = `Permintaan layanan untuk ${request.componentName} telah ditolak.`;
+                    showToast(message, 'error');
+                    addNotification({
+                        title: 'Permintaan Ditolak',
+                        message,
+                        type: 'error'
+                    });
+                }
+            });
+        }
+
+        previousRequestsRef.current = nextRequests;
+    }, [addNotification, showToast, user]);
+
+    const fetchRequests = useCallback(async () => {
+        const response = await fetch(REQUESTS_ENDPOINT, {
+            headers: getAuthHeaders()
+        });
+        if (response.status === 401) {
+            logout();
+            throw new Error('Sesi Anda telah berakhir. Silakan login kembali.');
+        }
         const payload = await response.json().catch(() => ({})) as {
             status?: string;
             message?: string;
@@ -122,19 +167,45 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
                     status: (entry.status as RequestStatus) ?? 'pending',
                     requestDate: String(entry.requestDate ?? new Date().toISOString()),
                     resolutionDate: typeof entry.resolutionDate === 'string' ? entry.resolutionDate : undefined,
-                    rejectionReason: typeof entry.rejectionReason === 'string' ? entry.rejectionReason : undefined
+                    rejectionReason: typeof entry.rejectionReason === 'string' ? entry.rejectionReason : undefined,
+                    resolutionOutcome: entry.resolutionOutcome === 'repaired' || entry.resolutionOutcome === 'broken'
+                        ? entry.resolutionOutcome
+                        : undefined
                 } as ServiceRequest;
             })
             .filter((entry): entry is ServiceRequest => entry !== null);
 
+        maybeNotifyRequestChanges(normalized);
         setRequests(normalized);
-    };
+    }, [logout, maybeNotifyRequestChanges]);
 
     useEffect(() => {
+        if (!isAuthenticated || !getAuthToken()) {
+            setRequests([]);
+            previousRequestsRef.current = [];
+            hasHydratedRequestsRef.current = false;
+            return;
+        }
+
         void fetchRequests().catch((error) => {
             console.error('Failed to load service requests:', error);
         });
-    }, []);
+    }, [fetchRequests, isAuthenticated, user?.id]);
+
+    useEffect(() => {
+        if (!isAuthenticated || !getAuthToken()) return;
+
+        const intervalId = window.setInterval(() => {
+            if (document.visibilityState !== 'visible') return;
+            void fetchRequests().catch((error) => {
+                console.error('Failed to auto-refresh service requests:', error);
+            });
+        }, 15000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [fetchRequests, isAuthenticated]);
 
     const addRequest = async (newRequest: Omit<ServiceRequest, 'id' | 'requestDate' | 'status'>) => {
         const requesterId = resolveRequesterId();
@@ -142,7 +213,7 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
 
         const response = await fetch(REQUESTS_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
                 componentId: newRequest.componentId,
                 description: newRequest.description,
@@ -168,7 +239,7 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
     ) => {
         const response = await fetch(REQUESTS_ENDPOINT, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
                 id,
                 status,

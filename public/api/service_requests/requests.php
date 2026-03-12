@@ -1,6 +1,7 @@
 <?php
 include_once '../config/cors.php';
 include_once '../config/database.php';
+include_once '../config/auth.php';
 
 header('Content-Type: application/json');
 
@@ -68,10 +69,9 @@ function findRequesterId(PDO $db, ?int $requesterId, ?string $requesterName): ?i
     return null;
 }
 
-function fetchServiceRequests(PDO $db): array
+function fetchServiceRequests(PDO $db, array $authUser): array
 {
-    $stmt = $db->prepare(
-        "SELECT
+    $sql = "SELECT
             sr.id,
             sr.item_id,
             sr.requester_id,
@@ -80,6 +80,15 @@ function fetchServiceRequests(PDO $db): array
             sr.request_date,
             sr.resolution_date,
             sr.rejection_reason,
+            (
+                SELECT JSON_UNQUOTE(JSON_EXTRACT(il.details, '$.outcome'))
+                FROM item_logs il
+                WHERE il.item_id = sr.item_id
+                  AND il.action = 'MAINTENANCE_COMPLETED'
+                  AND JSON_UNQUOTE(JSON_EXTRACT(il.details, '$.serviceRequestId')) = CAST(sr.id AS CHAR)
+                ORDER BY il.date DESC, il.id DESC
+                LIMIT 1
+            ) AS resolution_outcome,
             i.name AS component_name,
             i.sku AS component_sku,
             i.category AS component_category,
@@ -93,8 +102,18 @@ function fetchServiceRequests(PDO $db): array
         LEFT JOIN containers c ON i.container_id = c.id
         LEFT JOIN rooms r ON c.room_id = r.id
         LEFT JOIN users u ON sr.requester_id = u.id
-        ORDER BY sr.request_date DESC, sr.id DESC"
-    );
+        ";
+
+    if (authIsScopeRestricted($authUser)) {
+        $sql .= "WHERE r.type = :lab_scope ";
+    }
+
+    $sql .= "ORDER BY sr.request_date DESC, sr.id DESC";
+
+    $stmt = $db->prepare($sql);
+    if (authIsScopeRestricted($authUser)) {
+        $stmt->bindValue(':lab_scope', (string) $authUser['lab_scope'], PDO::PARAM_STR);
+    }
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -119,7 +138,8 @@ function fetchServiceRequests(PDO $db): array
             'status' => $row['status'] ?? 'pending',
             'requestDate' => $row['request_date'],
             'resolutionDate' => $row['resolution_date'],
-            'rejectionReason' => $row['rejection_reason']
+            'rejectionReason' => $row['rejection_reason'],
+            'resolutionOutcome' => $row['resolution_outcome'] ?? null
         ];
     }, $rows);
 }
@@ -144,11 +164,13 @@ function appendItemLog(PDO $db, int $itemId, string $action, array $details): vo
 }
 
 if ($method === 'GET') {
-    $requests = fetchServiceRequests($db);
+    $authUser = authRequireFeature($db, 'service_requests', 'view');
+    $requests = fetchServiceRequests($db, $authUser);
     respondRequest(200, ['status' => 'success', 'requests' => $requests]);
 }
 
 if ($method === 'POST') {
+    $authUser = authRequireFeature($db, 'service_requests', 'view');
     $itemId = toValidId($payload['componentId'] ?? $payload['item_id'] ?? null);
     $requesterId = toValidId($payload['requesterId'] ?? $payload['requester_id'] ?? null);
     $requesterName = isset($payload['requesterName']) ? trim((string) $payload['requesterName']) : null;
@@ -159,11 +181,10 @@ if ($method === 'POST') {
         respondRequest(400, ['status' => 'error', 'message' => 'componentId and description are required.']);
     }
 
-    $itemExistsStmt = $db->prepare("SELECT id FROM items WHERE id = :id LIMIT 1");
-    $itemExistsStmt->bindParam(':id', $itemId, PDO::PARAM_INT);
-    $itemExistsStmt->execute();
-    if (!$itemExistsStmt->fetch(PDO::FETCH_ASSOC)) {
-        respondRequest(400, ['status' => 'error', 'message' => 'Invalid componentId. Item not found.']);
+    authAssertItemScope($db, $authUser, $itemId);
+
+    if ($resolvedRequesterId !== null && !authIsSelf($authUser, $resolvedRequesterId) && !authHasFeatureAccess($authUser, 'user_management', 'full', $db)) {
+        respondRequest(403, ['status' => 'error', 'message' => 'Cannot submit request on behalf of another user.']);
     }
 
     try {
@@ -212,6 +233,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PUT') {
+    $authUser = authRequireFeature($db, 'service_requests', 'full');
     $id = toValidId($payload['id'] ?? null);
     if ($id === null) {
         respondRequest(400, ['status' => 'error', 'message' => 'Invalid service request id.']);
@@ -267,6 +289,7 @@ if ($method === 'PUT') {
         respondRequest(404, ['status' => 'error', 'message' => 'Service request not found.']);
     }
     $itemId = (int) $requestRow['item_id'];
+    authAssertItemScope($db, $authUser, $itemId);
 
     try {
         $db->beginTransaction();

@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Monitor, Keyboard, Mouse, Cpu, ChevronRight, Activity, Clock, Plus, Trash2, Save, Maximize, AlertTriangle, ChevronLeft } from 'lucide-react';
-import type { Container, ComponentStatus, ComponentCondition, ItemLog, Item } from '../types';
-import { useServiceRequests } from '../context/ServiceRequestContext';
-import { useLanguage } from '../context/LanguageContext';
-import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
+import type { Container, ComponentStatus, ComponentCondition, ItemLog, Item } from '../../types';
+import { useServiceRequests } from '../../context/ServiceRequestContext';
+import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
+import { useAccessMatrix } from '../../context/AccessMatrixContext';
+import { useToast } from '../../context/ToastContext';
 
 import StationVisualizer from './StationVisualizer';
+import { ItemConditionBadge } from '../common/ItemConditionBadge';
 
 interface StationDetailModalProps {
     station: Container;
@@ -133,8 +135,10 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
     // Derive initial state from props
     const { addRequest } = useServiceRequests();
     const { user } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
     const { t } = useLanguage();
     const { showToast } = useToast();
+    const canEditInventory = user ? canEditFeature('rooms', user.role) : false;
     const [stationComponents, setStationComponents] = useState<Record<string, { id: string, name: string; condition: ComponentCondition; status: ComponentStatus; specs: string[]; logs: ItemLog[] }>>(
         mapItemsToComponents(station.items || [])
     );
@@ -172,6 +176,12 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
     };
 
     const handleSaveTitle = () => {
+        if (!canEditInventory) {
+            setEditTitle(station.name);
+            setIsEditingTitle(false);
+            showToast('Anda tidak memiliki izin untuk mengubah station.', 'error');
+            return;
+        }
         if (editTitle.trim() && editTitle !== station.name) {
             onUpdate({ ...station, name: editTitle.trim() });
         } else {
@@ -236,6 +246,10 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
     };
 
     const handleInitiateEdit = () => {
+        if (!canEditInventory) {
+            showToast('Anda tidak memiliki izin untuk mengubah komponen.', 'error');
+            return;
+        }
         if (!selectedComponent) return;
         const comp = stationComponents[selectedComponent];
         if (comp) {
@@ -248,6 +262,10 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
     };
 
     const handleSave = () => {
+        if (!canEditInventory) {
+            showToast('Anda tidak memiliki izin untuk menyimpan komponen.', 'error');
+            return;
+        }
         if (!selectedComponent || !editForm) return;
 
         const updatedSpecs = editForm.specs.filter(s => s.trim() !== '');
@@ -312,6 +330,10 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
     };
 
     const handleDelete = () => {
+        if (!canEditInventory) {
+            showToast('Anda tidak memiliki izin untuk menghapus komponen.', 'error');
+            return;
+        }
         if (!selectedComponent) return;
 
         // Remove from local state
@@ -337,12 +359,12 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
     };
 
     const addSpecField = () => {
-        if (!editForm) return;
+        if (!canEditInventory || !editForm) return;
         setEditForm({ ...editForm, specs: [...editForm.specs, ''] });
     };
 
     const removeSpecField = (index: number) => {
-        if (!editForm) return;
+        if (!canEditInventory || !editForm) return;
         const newSpecs = editForm.specs.filter((_, i) => i !== index);
         setEditForm({ ...editForm, specs: newSpecs });
     };
@@ -368,8 +390,8 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                         stationComponents={stationComponents}
                         selectedComponent={selectedComponent}
                         hoveredComponent={hoveredComponent}
-                        onSelectComponent={(type) => handleComponentClick(type as ComponentType)} // Cast needed if types mismatch slightly
-                        onHoverComponent={(type) => setHoveredComponent(type as ComponentType)}
+                        onSelectComponent={(type: string | null) => type && handleComponentClick(type as ComponentType)} // Cast needed if types mismatch slightly
+                        onHoverComponent={(type: string | null) => type ? setHoveredComponent(type as ComponentType) : setHoveredComponent(null)}
                     />
 
                     {/* Info Panel ({Right) */}
@@ -401,7 +423,10 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                             ) : (
                                                 <span
                                                     className="cursor-text hover:text-indigo-400 hover:underline decoration-dashed decoration-indigo-400 underline-offset-4 transition-colors"
-                                                    onClick={() => setIsEditingTitle(true)}
+                                                    onClick={() => {
+                                                        if (!canEditInventory) return;
+                                                        setIsEditingTitle(true);
+                                                    }}
                                                     title="Click to edit name"
                                                 >
                                                     {station.name}
@@ -519,13 +544,7 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                             <span className="text-sm text-slate-400 flex items-center gap-2">
                                                 <Activity size={14} /> {t('condition')}
                                             </span>
-                                            <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${stationComponents[selectedComponent].condition === 'good'
-                                                ? 'bg-emerald-500/20 text-emerald-400'
-                                                : stationComponents[selectedComponent].condition === 'service' ? 'bg-amber-500/20 text-amber-400'
-                                                    : 'bg-rose-500/20 text-rose-400'
-                                                }`}>
-                                                {t(stationComponents[selectedComponent].condition)}
-                                            </span>
+                                            <ItemConditionBadge condition={stationComponents[selectedComponent].condition} tone="dark" className="px-2 py-0.5 text-xs uppercase" />
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-slate-400 flex items-center gap-2">
@@ -569,16 +588,16 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                             {ensureComponentLogs(stationComponents[selectedComponent].logs)
                                                 .filter((log) => log.action !== 'INITIALIZED')
                                                 .map((log) => (
-                                                <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5">
-                                                    <div className="text-[11px] text-slate-400">
-                                                        {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
+                                                    <div key={log.id} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5">
+                                                        <div className="text-[11px] text-slate-400">
+                                                            {new Date(log.date).toLocaleDateString()} | {new Date(log.date).toLocaleTimeString()}
+                                                        </div>
+                                                        <div className="text-xs font-semibold text-white mt-1">{formatActionLabel(log.action)}</div>
+                                                        <div className="text-xs text-slate-300 mt-1">
+                                                            {formatLogDetails(log.action, log.details)}
+                                                        </div>
                                                     </div>
-                                                    <div className="text-xs font-semibold text-white mt-1">{formatActionLabel(log.action)}</div>
-                                                    <div className="text-xs text-slate-300 mt-1">
-                                                        {formatLogDetails(log.action, log.details)}
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                ))}
                                         </div>
                                     </div>
 
@@ -591,12 +610,16 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
 
                                     {/* Edit/Delete (Admin/Advanced only - visually separated) */}
                                     <div className="flex gap-3 pt-2 border-t border-slate-800 mt-4">
-                                        <button onClick={handleInitiateEdit} className="flex-1 text-xs text-slate-500 hover:text-indigo-400 py-2 font-medium transition-all text-left">
-                                            {t('edit_config')}
-                                        </button>
-                                        <button onClick={handleDelete} className="text-xs text-slate-500 hover:text-rose-400 py-2 font-medium transition-all">
-                                            {t('remove_component')}
-                                        </button>
+                                        {canEditInventory && (
+                                            <>
+                                                <button onClick={handleInitiateEdit} className="flex-1 text-xs text-slate-500 hover:text-indigo-400 py-2 font-medium transition-all text-left">
+                                                    {t('edit_config')}
+                                                </button>
+                                                <button onClick={handleDelete} className="text-xs text-slate-500 hover:text-rose-400 py-2 font-medium transition-all">
+                                                    {t('remove_component')}
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             ) : null}
@@ -633,9 +656,11 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                     </div>
                                     <h4 className="text-lg font-medium text-white">{t('add_component')} {selectedComponent}</h4>
                                     <p className="text-sm text-slate-500">Configure this component to add it to the station.</p>
-                                    <button onClick={handleInitiateEdit} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">
-                                        {t('edit_config')}
-                                    </button>
+                                    {canEditInventory && (
+                                        <button onClick={handleInitiateEdit} className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                                            {t('edit_config')}
+                                        </button>
+                                    )}
                                 </div>
                             )}
 
@@ -660,10 +685,7 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                                         onClick={() => setSelectedComponent(key as ComponentType)}
                                                     >
                                                         <span className="text-sm text-white capitalize">{comp.name}</span>
-                                                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${comp.condition === 'good' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                            comp.condition === 'service' ? 'bg-amber-500/20 text-amber-400' :
-                                                                'bg-rose-500/20 text-rose-400'
-                                                            }`}>{comp.condition}</span>
+                                                        <ItemConditionBadge condition={comp.condition} tone="dark" className="px-2 py-0.5 text-[10px] uppercase" />
                                                     </div>
                                                 ))
                                             ) : (
@@ -673,56 +695,58 @@ const StationDetailModal = ({ station, roomId, initialSelectedComponent, onClose
                                     </div>
 
                                     {/* Add Missing Components Section */}
-                                    <div className="space-y-3">
-                                        <h5 className="text-xs text-slate-500 uppercase tracking-widest font-bold">{t('add_component')}</h5>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            {!stationComponents['desk'] && (
-                                                <button
-                                                    onClick={() => { setSelectedComponent('desk'); handleInitiateEdit(); }}
-                                                    className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group col-span-2"
-                                                >
-                                                    <Maximize size={24} className="text-slate-400 group-hover:text-indigo-400" />
-                                                    <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_physical_desk')}</span>
-                                                </button>
-                                            )}
-                                            {!stationComponents['monitor'] && (
-                                                <button
-                                                    onClick={() => { setSelectedComponent('monitor'); handleInitiateEdit(); }}
-                                                    className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
-                                                >
-                                                    <Monitor size={24} className="text-slate-400 group-hover:text-indigo-400" />
-                                                    <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_monitor')}</span>
-                                                </button>
-                                            )}
-                                            {!stationComponents['pc'] && (
-                                                <button
-                                                    onClick={() => { setSelectedComponent('pc'); handleInitiateEdit(); }}
-                                                    className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
-                                                >
-                                                    <Cpu size={24} className="text-slate-400 group-hover:text-indigo-400" />
-                                                    <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_pc')}</span>
-                                                </button>
-                                            )}
-                                            {!stationComponents['keyboard'] && (
-                                                <button
-                                                    onClick={() => { setSelectedComponent('keyboard'); handleInitiateEdit(); }}
-                                                    className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
-                                                >
-                                                    <Keyboard size={24} className="text-slate-400 group-hover:text-indigo-400" />
-                                                    <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_keyboard')}</span>
-                                                </button>
-                                            )}
-                                            {!stationComponents['mouse'] && (
-                                                <button
-                                                    onClick={() => { setSelectedComponent('mouse'); handleInitiateEdit(); }}
-                                                    className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
-                                                >
-                                                    <Mouse size={24} className="text-slate-400 group-hover:text-indigo-400" />
-                                                    <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_mouse')}</span>
-                                                </button>
-                                            )}
+                                    {canEditInventory && (
+                                        <div className="space-y-3">
+                                            <h5 className="text-xs text-slate-500 uppercase tracking-widest font-bold">{t('add_component')}</h5>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {!stationComponents['desk'] && (
+                                                    <button
+                                                        onClick={() => { setSelectedComponent('desk'); handleInitiateEdit(); }}
+                                                        className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group col-span-2"
+                                                    >
+                                                        <Maximize size={24} className="text-slate-400 group-hover:text-indigo-400" />
+                                                        <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_physical_desk')}</span>
+                                                    </button>
+                                                )}
+                                                {!stationComponents['monitor'] && (
+                                                    <button
+                                                        onClick={() => { setSelectedComponent('monitor'); handleInitiateEdit(); }}
+                                                        className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
+                                                    >
+                                                        <Monitor size={24} className="text-slate-400 group-hover:text-indigo-400" />
+                                                        <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_monitor')}</span>
+                                                    </button>
+                                                )}
+                                                {!stationComponents['pc'] && (
+                                                    <button
+                                                        onClick={() => { setSelectedComponent('pc'); handleInitiateEdit(); }}
+                                                        className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
+                                                    >
+                                                        <Cpu size={24} className="text-slate-400 group-hover:text-indigo-400" />
+                                                        <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_pc')}</span>
+                                                    </button>
+                                                )}
+                                                {!stationComponents['keyboard'] && (
+                                                    <button
+                                                        onClick={() => { setSelectedComponent('keyboard'); handleInitiateEdit(); }}
+                                                        className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
+                                                    >
+                                                        <Keyboard size={24} className="text-slate-400 group-hover:text-indigo-400" />
+                                                        <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_keyboard')}</span>
+                                                    </button>
+                                                )}
+                                                {!stationComponents['mouse'] && (
+                                                    <button
+                                                        onClick={() => { setSelectedComponent('mouse'); handleInitiateEdit(); }}
+                                                        className="p-3 bg-slate-800 border border-slate-700 hover:bg-indigo-900/20 hover:border-indigo-500/50 rounded-lg flex flex-col items-center gap-2 transition-all group"
+                                                    >
+                                                        <Mouse size={24} className="text-slate-400 group-hover:text-indigo-400" />
+                                                        <span className="text-xs font-medium text-slate-300 group-hover:text-white">{t('add_mouse')}</span>
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </motion.div>
                             )}
                         </div>

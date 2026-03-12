@@ -5,8 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import StationDetailModal from '../components/StationDetailModal';
-import ContainerDetailModal from '../components/ContainerDetailModal';
+import StationDetailModal from '../components/inventory/StationDetailModal';
+import ContainerDetailModal from '../components/inventory/ContainerDetailModal';
 import type { Container } from '../types';
 
 // Isometric Container Card

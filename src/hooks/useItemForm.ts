@@ -6,6 +6,7 @@ import {
     deriveRoomCode,
     type InventoryCodeSettings
 } from '../utils/inventoryCode';
+import { getAuthHeaders } from '../utils/api';
 
 interface ItemFormData {
     name: string;
@@ -70,7 +71,7 @@ export const useItemForm = (initialItem?: Item | null) => {
         try {
             const response = await fetch(INVENTORY_CODES_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({
                     action: 'generate',
                     roomId: options?.roomId ?? null,

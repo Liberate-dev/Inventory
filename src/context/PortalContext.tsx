@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { getAuthHeaders } from '../utils/api';
 
 export type PortalType = 'lab' | 'non-lab';
 
@@ -29,7 +30,9 @@ export const PortalProvider = ({ children }: { children: ReactNode }) => {
 
         const loadPortalPreference = async () => {
             try {
-                const response = await fetch(`${PREFERENCES_ENDPOINT}?user_id=${encodeURIComponent(user.id)}`);
+                const response = await fetch(`${PREFERENCES_ENDPOINT}?user_id=${encodeURIComponent(user.id)}`, {
+                    headers: getAuthHeaders()
+                });
                 const payload = await response.json().catch(() => ({})) as { status?: string; preferences?: { portalType?: string } };
                 if (!response.ok || payload.status === 'error') return;
 
@@ -51,7 +54,7 @@ export const PortalProvider = ({ children }: { children: ReactNode }) => {
         if (!user?.id) return;
         void fetch(PREFERENCES_ENDPOINT, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
                 userId: user.id,
                 portalType: type

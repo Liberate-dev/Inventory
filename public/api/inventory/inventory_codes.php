@@ -1,6 +1,7 @@
 <?php
 include_once '../config/cors.php';
 include_once '../config/database.php';
+include_once '../config/auth.php';
 
 header('Content-Type: application/json');
 
@@ -173,11 +174,13 @@ try {
 }
 
 if ($method === 'GET') {
+    authRequireFeature($db, 'print_assets', 'view');
     $settings = fetchInventoryCodeSettings($db);
     respondInventoryCode(200, ['status' => 'success', 'settings' => $settings]);
 }
 
 if ($method === 'PUT') {
+    authRequireFeature($db, 'print_assets', 'full');
     $settings = fetchInventoryCodeSettings($db);
 
     $prefix = strtoupper(trim((string) ($payload['prefix'] ?? $settings['prefix'])));
@@ -234,9 +237,19 @@ if ($method === 'PUT') {
 }
 
 if ($method === 'POST') {
+    $authUser = authCurrentUser($db, true);
     $action = (string) ($payload['action'] ?? '');
 
     if ($action === 'generate') {
+        if (!authHasFeatureAccess($authUser, 'print_assets', 'full', $db) && !authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respondInventoryCode(403, ['status' => 'error', 'message' => 'Access denied.']);
+        }
+
+        $roomId = $payload['roomId'] ?? $payload['room_id'] ?? null;
+        if ($roomId !== null && is_numeric($roomId)) {
+            authAssertRoomScope($db, $authUser, (int) $roomId);
+        }
+
         $roomName = resolveRoomNameById($db, $payload['roomId'] ?? $payload['room_id'] ?? null);
         if ($roomName === null && isset($payload['roomName'])) {
             $roomName = (string) $payload['roomName'];
@@ -280,6 +293,10 @@ if ($method === 'POST') {
     }
 
     if ($action === 'normalize') {
+        if (!authHasFeatureAccess($authUser, 'print_assets', 'full', $db)) {
+            respondInventoryCode(403, ['status' => 'error', 'message' => 'Access denied.']);
+        }
+
         $mode = (string) ($payload['mode'] ?? 'all');
         if (!in_array($mode, ['all', 'missing'], true)) {
             respondInventoryCode(400, ['status' => 'error', 'message' => 'Mode normalisasi tidak valid.']);
@@ -295,6 +312,7 @@ if ($method === 'POST') {
                  FROM items i
                  INNER JOIN containers c ON c.id = i.container_id
                  INNER JOIN rooms r ON r.id = c.room_id
+                 WHERE i.deleted_at IS NULL
                  ORDER BY r.id ASC, c.id ASC, i.id ASC"
             );
             $itemStmt->execute();

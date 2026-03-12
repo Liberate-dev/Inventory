@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { useInventory } from '../../context/InventoryContext';
 import { ArrowRightLeft, ClipboardList, CheckCircle, Search, Calendar, User as UserIcon, AlertCircle, Plus, CheckSquare, Square, X, Clock, ArrowRight, FileDown, History } from 'lucide-react';
 import type { Item, ComponentCondition, ComponentStatus, Room, Container, ItemLog } from '../../types';
-import VerificationModal from '../../components/VerificationModal';
+import VerificationModal from '../../components/common/VerificationModal';
+import { ItemConditionBadge } from '../../components/common/ItemConditionBadge';
+import { useAuth } from '../../context/AuthContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { getItemConditionLabel, getItemConditionOptions } from '../../utils/itemCondition';
 
 const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
     if (typeof rawDetails === 'string') {
@@ -37,11 +40,17 @@ const formatLocationLabel = (value: unknown): string => {
     return cleaned === '' ? '-' : cleaned;
 };
 
-const capitalizeFirst = (str: string) => str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
-
 export default function OperationsPage() {
+    const { user } = useAuth();
     const { rooms, updateRoom } = useInventory();
     const [activeTab, setActiveTab] = useState<'transfer' | 'usage'>('transfer');
+
+    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all');
+
+    // Filter rooms based on scope for dropdowns
+    const scopedRooms = isScopeRestricted
+        ? rooms.filter(r => r.type === user?.labScope)
+        : rooms;
 
     // Multi-select State
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -55,9 +64,9 @@ export default function OperationsPage() {
     const [pendingAction, setPendingAction] = useState<'transfer' | 'usage' | null>(null);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
-    // Filter Logic for Modal
+    // Filter Logic for Modal using scopedRooms
     const allItems: { item: Item; room: Room; container: Container }[] = [];
-    rooms.forEach(room => {
+    scopedRooms.forEach(room => {
         room.containers?.forEach(container => {
             container.items?.forEach(item => {
                 allItems.push({ item, room, container });
@@ -234,12 +243,29 @@ export default function OperationsPage() {
         conditionCheck: 'good' as ComponentCondition
     });
 
+    // State to track quantity for consumable items
+    const [usageQuantities, setUsageQuantities] = useState<Record<string, number>>({});
+
     const initiateUsage = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (selectedItemIds.length === 0) {
             alert("Please select at least one item.");
             return;
+        }
+
+        // Validate quantities for consumables during checkout
+        if (usageForm.actionType === 'checkout') {
+            const overdrawnItems = selectedItemsData.filter(({ item }) => {
+                if (!item.isConsumable) return false;
+                const reqQty = usageQuantities[item.id] || 1;
+                return reqQty > (item.quantity || 0);
+            });
+
+            if (overdrawnItems.length > 0) {
+                alert(`Insufficient stock for:\n${overdrawnItems.map(i => i.item.name).join(', ')}`);
+                return;
+            }
         }
 
         // Validation Batch
@@ -279,6 +305,9 @@ export default function OperationsPage() {
                 return;
             }
 
+            const isConsumable = currentItem.isConsumable;
+            const quantityProcessed = isConsumable ? (usageQuantities[currentItem.id] || 1) : undefined;
+
             // 1. Create Log
             const newLog: ItemLog = {
                 id: `log-${Date.now()}-${item.id}`,
@@ -289,17 +318,33 @@ export default function OperationsPage() {
                     returner: usageForm.actionType === 'checkin' ? usageForm.borrower : undefined,
                     purpose: usageForm.purpose,
                     verifiedBy: verifierInfo,
-                    condition: usageForm.conditionCheck
+                    condition: usageForm.conditionCheck,
+                    quantityProcessed // Audit trail
                 })
             };
 
             // 2. Update Item
-            const updatedItem = {
-                ...currentItem,
-                status: (usageForm.actionType === 'checkout' ? 'in_use' : 'available') as ComponentStatus,
-                condition: usageForm.actionType === 'checkin' ? usageForm.conditionCheck : currentItem.condition,
-                logs: [newLog, ...(currentItem.logs || [])]
-            };
+            let updatedItem;
+            if (isConsumable) {
+                const newQuantity = usageForm.actionType === 'checkout'
+                    ? Math.max(0, (currentItem.quantity || 0) - (quantityProcessed as number))
+                    : (currentItem.quantity || 0) + (quantityProcessed as number);
+
+                updatedItem = {
+                    ...currentItem,
+                    quantity: newQuantity,
+                    // Condition check doesn't really apply to consumables usually, but keeping it inline
+                    condition: usageForm.actionType === 'checkin' ? usageForm.conditionCheck : currentItem.condition,
+                    logs: [newLog, ...(currentItem.logs || [])]
+                };
+            } else {
+                updatedItem = {
+                    ...currentItem,
+                    status: (usageForm.actionType === 'checkout' ? 'in_use' : 'available') as ComponentStatus,
+                    condition: usageForm.actionType === 'checkin' ? usageForm.conditionCheck : currentItem.condition,
+                    logs: [newLog, ...(currentItem.logs || [])]
+                };
+            }
 
             // 3. Save
             const updatedContainerObj = {
@@ -357,9 +402,9 @@ export default function OperationsPage() {
 
         let startY = 40;
 
-        // Collect all operations logs
+        // Collect all operations logs using scopedRooms instead of global rooms
         const allLogs: { item: Item; room: Room; container: Container; log: ItemLog }[] = [];
-        rooms.forEach(room => {
+        scopedRooms.forEach(room => {
             room.containers?.forEach(container => {
                 container.items?.forEach(item => {
                     item.logs?.forEach(log => {
@@ -436,7 +481,7 @@ export default function OperationsPage() {
                         String(idx + 1),
                         new Date(entry.log.date).toLocaleDateString('id-ID'),
                         entry.log.action === 'CHECK_OUT' ? 'Pinjam' : 'Kembali',
-                        entry.item.name,
+                        entry.item.name + (d.quantityProcessed ? ` (Qty: ${d.quantityProcessed})` : ''),
                         entry.room.name,
                         String(d.borrower ?? '-'),
                         String(d.purpose ?? '-'),
@@ -579,7 +624,7 @@ export default function OperationsPage() {
                                                     className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                                                 >
                                                     <option value="">Select Room</option>
-                                                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                                    {scopedRooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                                                 </select>
                                             </div>
                                             <div className="space-y-1.5">
@@ -591,7 +636,7 @@ export default function OperationsPage() {
                                                     className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50 text-sm"
                                                 >
                                                     <option value="">Select Container</option>
-                                                    {rooms.find(r => r.id === transferForm.targetRoomId)?.containers.map(c => (
+                                                    {scopedRooms.find(r => r.id === transferForm.targetRoomId)?.containers.map(c => (
                                                         <option key={c.id} value={c.id}>{c.name}</option>
                                                     ))}
                                                 </select>
@@ -630,7 +675,7 @@ export default function OperationsPage() {
                                                 <div className="flex flex-wrap gap-2">
                                                     {selectedItemsData.map(({ item }) => (
                                                         <div key={item.id} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 font-medium group transition-all hover:border-red-200 hover:bg-red-50">
-                                                            {item.name} - {capitalizeFirst(item.condition)}
+                                                            {item.name} - {getItemConditionLabel(item.condition)}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => toggleItemSelection(item.id)}
@@ -649,10 +694,9 @@ export default function OperationsPage() {
                                                             onChange={(e) => setTransferForm({ ...transferForm, conditionBefore: e.target.value as ComponentCondition })}
                                                             className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                                                         >
-                                                            <option value="good">Good</option>
-                                                            <option value="service">Service</option>
-                                                            <option value="damaged">Damaged</option>
-                                                            <option value="broken">Broken</option>
+                                                            {getItemConditionOptions().map((option) => (
+                                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                                            ))}
                                                         </select>
                                                     </div>
                                                 </div>
@@ -758,17 +802,40 @@ export default function OperationsPage() {
 
                                         {selectedItemIds.length > 0 ? (
                                             <div className="space-y-3">
-                                                <div className="flex flex-wrap gap-2">
+                                                <div className="flex flex-col gap-2">
                                                     {selectedItemsData.map(({ item }) => (
-                                                        <div key={item.id} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 font-medium group transition-all hover:border-red-200 hover:bg-red-50">
-                                                            {item.name}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => toggleItemSelection(item.id)}
-                                                                className="text-slate-400 group-hover:text-red-500 transition-colors"
-                                                            >
-                                                                <X size={14} />
-                                                            </button>
+                                                        <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg group transition-all hover:border-red-200 hover:bg-red-50">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm text-slate-700 font-medium">{item.name}</span>
+                                                                {item.isConsumable && (
+                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">Consumable</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-4">
+                                                                {item.isConsumable && (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <label className="text-xs text-slate-500 font-semibold">Qty:</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={usageForm.actionType === 'checkout' ? item.quantity : undefined}
+                                                                            value={usageQuantities[item.id] || 1}
+                                                                            onChange={(e) => setUsageQuantities(prev => ({ ...prev, [item.id]: parseInt(e.target.value) || 1 }))}
+                                                                            className="w-20 p-1 border border-slate-300 rounded focus:ring-1 focus:ring-indigo-500 text-sm outline-none"
+                                                                        />
+                                                                        {usageForm.actionType === 'checkout' && (
+                                                                            <span className="text-xs text-slate-400">/ {item.quantity}</span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => toggleItemSelection(item.id)}
+                                                                    className="text-slate-400 group-hover:text-red-500 transition-colors"
+                                                                >
+                                                                    <X size={14} />
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -783,10 +850,9 @@ export default function OperationsPage() {
                                                             onChange={(e) => setUsageForm({ ...usageForm, conditionCheck: e.target.value as ComponentCondition })}
                                                             className="w-full p-2.5 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
                                                         >
-                                                            <option value="good">Good (No new damage)</option>
-                                                            <option value="service">Service Needed</option>
-                                                            <option value="damaged">Damaged</option>
-                                                            <option value="broken">Broken</option>
+                                                            {getItemConditionOptions().map((option) => (
+                                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                                            ))}
                                                         </select>
                                                     </div>
                                                 )}
@@ -886,7 +952,7 @@ export default function OperationsPage() {
                                                 <div className="truncate">
                                                     <div className={`font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-700'}`}>{item.name}</div>
                                                     <div className="text-xs text-gray-500 flex items-center gap-2">
-                                                        <span className="capitalize px-1.5 py-0.5 rounded bg-gray-100">{capitalizeFirst(item.condition)}</span>
+                                                        <ItemConditionBadge condition={item.condition} className="px-2 py-0.5 text-[10px] uppercase" />
                                                         <span className="text-gray-400">•</span>
                                                         <span>{room.name} / {container.name}</span>
                                                     </div>
@@ -948,10 +1014,16 @@ export default function OperationsPage() {
 
 // Active Loans Component
 function ActiveLoans({ onReturn }: { onReturn: (itemId: string) => void }) {
+    const { user } = useAuth();
     const { rooms } = useInventory();
 
+    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all');
+    const scopedRooms = isScopeRestricted
+        ? rooms.filter(r => r.type === user?.labScope)
+        : rooms;
+
     // Find all items in use
-    const activeItems = rooms.flatMap(room =>
+    const activeItems = scopedRooms.flatMap(room =>
         room.containers?.flatMap(container =>
             container.items?.filter(item => item.status === 'in_use')
                 .map(item => ({ item, roomName: room.name })) || []
@@ -988,7 +1060,7 @@ function ActiveLoans({ onReturn }: { onReturn: (itemId: string) => void }) {
 // Define PendingVerifications Helper Component
 function PendingVerifications() {
     const { recentLogs, rooms, updateRoom } = useInventory();
-    const [verifyingLog, setVerifyingLog] = useState<{ roomName: string, itemName: string, log: ItemLog } | null>(null);
+    const [verifyingLog, setVerifyingLog] = useState<{ roomId: string, roomName: string, itemName: string, log: ItemLog } | null>(null);
 
     const pendingLogs = recentLogs.filter(entry => {
         const details = parseLogDetails(entry.log.details);
@@ -1085,10 +1157,9 @@ function PendingVerifications() {
                             How is the condition of <b>{verifyingLog.itemName}</b> after arrival?
                         </p>
                         <div className="grid grid-cols-2 gap-3">
-                            <button onClick={() => { void handleConfirm('good'); }} className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100">Good</button>
+                            <button onClick={() => { void handleConfirm('good'); }} className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100">Baik</button>
                             <button onClick={() => { void handleConfirm('service'); }} className="p-3 bg-amber-50 border border-amber-200 text-amber-700 font-bold rounded-xl hover:bg-amber-100">Service</button>
-                            <button onClick={() => { void handleConfirm('damaged'); }} className="p-3 bg-orange-50 border border-orange-200 text-orange-700 font-bold rounded-xl hover:bg-orange-100">Damaged</button>
-                            <button onClick={() => { void handleConfirm('broken'); }} className="p-3 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-xl hover:bg-rose-100">Broken</button>
+                            <button onClick={() => { void handleConfirm('damaged'); }} className="p-3 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-xl hover:bg-rose-100">Rusak</button>
                         </div>
                         <button onClick={() => setVerifyingLog(null)} className="w-full mt-4 py-2 text-slate-400 font-bold text-sm hover:text-slate-600">Cancel</button>
                     </div>
@@ -1102,12 +1173,24 @@ function PendingVerifications() {
 // HistoryModal Component
 // ---------------------------------------------------------
 function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-    const { recentLogs } = useInventory();
+    const { recentLogs, rooms } = useInventory();
+    const { user } = useAuth();
+
+    // Create scopedRooms for logs just like the main page
+    const scopedRooms = user?.labScope === 'all' || !user?.labScope
+        ? rooms
+        : rooms.filter(r => r.type === user?.labScope);
+
+    const allowedRoomIds = new Set(scopedRooms.map(r => r.id));
+
     const [filterType, setFilterType] = useState<'ALL' | 'TRANSFER' | 'CHECK_OUT' | 'RETURNED'>('ALL');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedLog, setSelectedLog] = useState<{ entry: (typeof recentLogs)[0]; details: Record<string, unknown> } | null>(null);
     const operationalActions = new Set(['TRANSFER', 'CHECK_OUT', 'RETURNED']);
-    const operationalLogs = recentLogs.filter((entry) => operationalActions.has(entry.log.action));
+
+    // Only show logs for rooms the user is allowed to see
+    const scopedRecentLogs = recentLogs.filter(entry => allowedRoomIds.has(entry.roomId));
+    const operationalLogs = scopedRecentLogs.filter((entry) => operationalActions.has(entry.log.action));
 
     const filteredLogs = operationalLogs.filter(entry => {
         if (filterType !== 'ALL' && entry.log.action !== filterType) return false;
@@ -1180,16 +1263,21 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                                             entry.log.action === 'RETURNED' ? 'bg-emerald-400' : 'bg-slate-300'
                                         }`} />
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-bold text-slate-800 flex items-center gap-2">
+                                        <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
                                             <span className="truncate">{entry.itemName}</span>
+                                            {details.quantityProcessed !== undefined && (
+                                                <span className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-bold border border-indigo-100 shrink-0">
+                                                    Qty: {String(details.quantityProcessed)}
+                                                </span>
+                                            )}
                                             <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-semibold uppercase shrink-0">
                                                 {entry.log.action.replace('_', ' ')}
                                             </span>
                                         </div>
                                         <div className="text-sm text-slate-500 mt-1 line-clamp-1">
                                             {entry.log.action === 'TRANSFER' && `Dari ${formatLocationLabel(details.from)} ke ${formatLocationLabel(details.to)}`}
-                                            {entry.log.action === 'CHECK_OUT' && `Peminjam: ${String(details.borrower || '-')} \u2014 ${String(details.purpose || '-')}`}
-                                            {entry.log.action === 'RETURNED' && `Dikembalikan oleh: ${String(details.returner || '-')} (Kondisi: ${String(details.condition || '-')})`}
+                                            {entry.log.action === 'CHECK_OUT' && `Peminjam: ${details.borrower ? String(details.borrower) : '-'} \u2014 ${details.purpose ? String(details.purpose) : '-'}`}
+                                            {entry.log.action === 'RETURNED' && `Dikembalikan oleh: ${details.returner ? String(details.returner) : '-'} (Kondisi: ${details.condition ? String(details.condition) : '-'})`}
                                         </div>
                                     </div>
                                     <div className="text-right shrink-0">
@@ -1223,7 +1311,10 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                         <div className="space-y-4">
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                 <div className="text-xs text-slate-400 font-bold uppercase mb-1">Item</div>
-                                <div className="font-bold text-slate-700">{selectedLog.entry.itemName}</div>
+                                <div className="font-bold text-slate-700">
+                                    {selectedLog.entry.itemName}
+                                    {selectedLog.details.quantityProcessed !== undefined && ` (Qty: ${String(selectedLog.details.quantityProcessed)})`}
+                                </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
@@ -1241,17 +1332,17 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                                         </div>
                                         <div>
                                             <div className="text-xs text-slate-400 font-bold uppercase mb-1">Pemindah</div>
-                                            <div className="text-sm font-bold text-slate-600">{String(selectedLog.details.mover || '-')}</div>
+                                            <div className="text-sm font-bold text-slate-600">{selectedLog.details.mover ? String(selectedLog.details.mover) : '-'}</div>
                                         </div>
                                         <div>
                                             <div className="text-xs text-slate-400 font-bold uppercase mb-1">Penerima</div>
-                                            <div className="text-sm font-bold text-slate-600">{String(selectedLog.details.receiver || '-')}</div>
+                                            <div className="text-sm font-bold text-slate-600">{selectedLog.details.receiver ? String(selectedLog.details.receiver) : '-'}</div>
                                         </div>
                                         <div>
                                             <div className="text-xs text-slate-400 font-bold uppercase mb-1">Status Verifikasi</div>
                                             <div className={`text-[10px] font-bold px-2 py-1 rounded inline-block ${selectedLog.details.verificationStatus === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                                                 }`}>
-                                                {String(selectedLog.details.verificationStatus || 'UNVERIFIED').toString().toUpperCase()}
+                                                {selectedLog.details.verificationStatus ? String(selectedLog.details.verificationStatus).toUpperCase() : 'UNVERIFIED'}
                                             </div>
                                         </div>
                                     </>

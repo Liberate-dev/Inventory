@@ -7,7 +7,7 @@ import { Search, Plus, Trash2, Edit2, X, Users, ShieldCheck, Eye, ChevronDown, R
 
 // ── Role Definitions ──────────────────────────────────────────────────────────
 const ROLE_CONFIG: Record<UserRole, { label: string; color: string; bg: string; description: string }> = {
-    admin: { label: 'Super Admin', color: 'text-indigo-700', bg: 'bg-indigo-100', description: 'Akses penuh ke semua fitur, termasuk manajemen pengguna.' },
+    admin: { label: 'Super Admin', color: 'text-indigo-700', bg: 'bg-indigo-100', description: 'Akses khusus panel admin: dashboard admin, manajemen pengguna, profil, dan log sistem.' },
     kepala_lab: { label: 'Kepala Lab', color: 'text-emerald-700', bg: 'bg-emerald-100', description: 'Kelola inventaris lab, operasional, dan laporan.' },
     guru: { label: 'Guru / Asisten', color: 'text-blue-700', bg: 'bg-blue-100', description: 'Kelola inventaris lab dan operasional.' },
     kepala_sekolah: { label: 'Kepsek', color: 'text-amber-700', bg: 'bg-amber-100', description: 'Melihat laporan dan kondisi seluruh inventaris (read-only).' },
@@ -31,7 +31,7 @@ const FEATURE_KEYS = Object.keys(FEATURE_LABELS) as FeatureKey[];
 // ── Component ─────────────────────────────────────────────────────────────────
 const UserManagement = () => {
     const { allUsers, deleteUser, user: currentUser } = useAuth();
-    const { getAccess, setAccess, resetMatrix } = useAccessMatrix();
+    const { getAccess, canEditFeature, setAccess, resetMatrix, loading: matrixLoading } = useAccessMatrix();
     const [searchTerm, setSearchTerm] = useState('');
     const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -39,14 +39,17 @@ const UserManagement = () => {
     const [showAccessMatrix, setShowAccessMatrix] = useState(false);
     const [isEditingMatrix, setIsEditingMatrix] = useState(false);
 
+    const accessLevel = currentUser ? getAccess('user_management', currentUser.role) : 'none';
+    const canManageUserManagement = currentUser ? canEditFeature('user_management', currentUser.role) : false;
+
     // ── Guard ─────────────────────────────────────────────────────────────────
-    if (currentUser?.role !== 'admin') {
+    if (accessLevel === 'none') {
         return (
             <div className="flex flex-col items-center justify-center p-12 text-center h-[60vh]">
                 <ShieldCheck size={64} className="text-red-500 mb-4 opacity-80" />
                 <h2 className="text-2xl font-bold text-slate-800">Akses Ditolak</h2>
                 <p className="text-slate-500 mt-2 max-w-md mx-auto">
-                    Halaman manajemen pengguna ini dibatasi dan hanya dapat diakses oleh Administrator Sistem.
+                    Anda tidak memiliki izin untuk membuka halaman manajemen pengguna.
                 </p>
             </div>
         );
@@ -65,6 +68,10 @@ const UserManagement = () => {
 
     // ── Delete ────────────────────────────────────────────────────────────────
     const handleDelete = async (id: string) => {
+        if (!canManageUserManagement) {
+            alert('Mode akses Anda hanya baca. Penghapusan pengguna tidak diizinkan.');
+            return;
+        }
         if (!confirm('Apakah Anda yakin ingin menghapus pengguna ini? Tindakan ini tidak dapat dibatalkan.')) return;
         try {
             await deleteUser(id);
@@ -97,13 +104,15 @@ const UserManagement = () => {
                         <Eye size={18} />
                         Matriks Akses
                     </button>
-                    <button
-                        onClick={() => setIsAddModalOpen(true)}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#000080] text-white rounded-xl font-bold shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-all text-sm"
-                    >
-                        <Plus size={18} />
-                        Tambah Pengguna
-                    </button>
+                    {canManageUserManagement && (
+                        <button
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#000080] text-white rounded-xl font-bold shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-all text-sm"
+                        >
+                            <Plus size={18} />
+                            Tambah Pengguna
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -126,7 +135,12 @@ const UserManagement = () => {
                             {isEditingMatrix ? (
                                 <>
                                     <button
-                                        onClick={() => { resetMatrix(); }}
+                                        onClick={() => {
+                                            void resetMatrix().catch((error) => {
+                                                console.error('Failed to reset access matrix:', error);
+                                                alert(error instanceof Error ? error.message : 'Gagal mereset matriks akses.');
+                                            });
+                                        }}
                                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                                         title="Reset ke default"
                                     >
@@ -141,8 +155,12 @@ const UserManagement = () => {
                                 </>
                             ) : (
                                 <button
+                                    disabled={!canManageUserManagement}
                                     onClick={() => setIsEditingMatrix(true)}
-                                    className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-[#000080] bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                                    className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold border rounded-lg transition-colors ${canManageUserManagement
+                                        ? 'text-[#000080] bg-blue-50 border-blue-200 hover:bg-blue-100'
+                                        : 'text-slate-400 bg-slate-100 border-slate-200 cursor-not-allowed'
+                                        }`}
                                 >
                                     <Edit2 size={13} /> Edit Matriks
                                 </button>
@@ -161,6 +179,14 @@ const UserManagement = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
+                                {matrixLoading ? (
+                                    <tr>
+                                        <td colSpan={ROLE_OPTIONS.length + 1} className="p-6 text-center text-sm text-slate-500">
+                                            Memuat matriks akses dari server...
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    <>
                                 {FEATURE_KEYS.map(featureKey => (
                                     <tr key={featureKey} className="hover:bg-slate-50/50">
                                         <td className="p-3 font-medium text-slate-700">{FEATURE_LABELS[featureKey]}</td>
@@ -168,19 +194,25 @@ const UserManagement = () => {
                                             const level = getAccess(featureKey, role);
                                             const cfg = LEVEL_CONFIG[level];
                                             const nextLevel = LEVEL_CYCLE[(LEVEL_CYCLE.indexOf(level) + 1) % LEVEL_CYCLE.length];
-                                            // Super admin always has full access, don't allow changing
-                                            const isLocked = role === 'admin' || !isEditingMatrix;
+                                            // Super admin uses fixed core policy and is not editable from matrix UI
+                                            const isLocked = role === 'admin' || !isEditingMatrix || !canManageUserManagement;
                                             return (
                                                 <td key={role} className="p-2 text-center">
                                                     <button
-                                                        onClick={() => !isLocked && setAccess(featureKey, role, nextLevel)}
+                                                        onClick={() => {
+                                                            if (isLocked) return;
+                                                            void setAccess(featureKey, role, nextLevel).catch((error) => {
+                                                                console.error('Failed to update access matrix:', error);
+                                                                alert(error instanceof Error ? error.message : 'Gagal memperbarui matriks akses.');
+                                                            });
+                                                        }}
                                                         disabled={isLocked}
                                                         className={`inline-flex items-center justify-center w-20 h-7 rounded-lg border text-xs font-bold transition-all ${isEditingMatrix && !isLocked
                                                             ? `${cfg.cellCls} cursor-pointer ring-1 ring-offset-1 ring-transparent hover:ring-current`
                                                             : `${cfg.cellCls} opacity-80 cursor-default`
                                                             }`}
                                                         title={
-                                                            role === 'admin' ? 'Super Admin selalu punya akses penuh'
+                                                            role === 'admin' ? 'Super Admin mengikuti kebijakan inti sistem'
                                                                 : !isEditingMatrix ? 'Tekan Edit untuk mengubah'
                                                                     : `Klik untuk ubah ke ${LEVEL_CONFIG[nextLevel].label}`
                                                         }
@@ -192,6 +224,8 @@ const UserManagement = () => {
                                         })}
                                     </tr>
                                 ))}
+                                    </>
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -199,7 +233,7 @@ const UserManagement = () => {
                         <span className="flex items-center gap-1.5"><span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">✓ Penuh</span> Akses penuh + edit</span>
                         <span className="flex items-center gap-1.5"><span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold">👁 View</span> Lihat saja</span>
                         <span className="flex items-center gap-1.5"><span className="px-2 py-0.5 rounded bg-slate-100 text-slate-400 font-bold">— Tidak Ada</span> Menu tersembunyi</span>
-                        <span className="text-slate-400 italic ml-auto">Perubahan disimpan otomatis di browser ini.</span>
+                        <span className="text-slate-400 italic ml-auto">Perubahan disimpan terpusat di server.</span>
                     </div>
                 </div>
             )}
@@ -290,7 +324,7 @@ const UserManagement = () => {
                                     </td>
                                     <td className="p-4">
                                         <span className="text-sm text-slate-600 capitalize font-medium">
-                                            {['admin', 'kepala_sekolah', 'sarpras'].includes(user.role)
+                                            {user.role === 'admin'
                                                 ? <span className="text-slate-400 italic text-xs">Global</span>
                                                 : user.labScope === 'all'
                                                     ? 'Semua Lab'
@@ -299,24 +333,28 @@ const UserManagement = () => {
                                         </span>
                                     </td>
                                     <td className="p-4 text-right">
-                                        <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => setEditingUser(user)}
-                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                title="Edit"
-                                            >
-                                                <Edit2 size={16} />
-                                            </button>
-                                            {user.id !== currentUser?.id && (
+                                        {canManageUserManagement ? (
+                                            <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                                                 <button
-                                                    onClick={() => { void handleDelete(user.id); }}
-                                                    className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                                    title="Hapus"
+                                                    onClick={() => setEditingUser(user)}
+                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                    title="Edit"
                                                 >
-                                                    <Trash2 size={16} />
+                                                    <Edit2 size={16} />
                                                 </button>
-                                            )}
-                                        </div>
+                                                {user.id !== currentUser?.id && (
+                                                    <button
+                                                        onClick={() => { void handleDelete(user.id); }}
+                                                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                        title="Hapus"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">View</span>
+                                        )}
                                     </td>
                                 </tr>
                             )) : (
@@ -335,13 +373,13 @@ const UserManagement = () => {
                 {/* Table Footer */}
                 <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
                     <span>Total: <b>{allUsers.length}</b> pengguna terdaftar</span>
-                    <span>Hanya <b>Super Admin</b> yang dapat mengelola halaman ini.</span>
+                    <span>{canManageUserManagement ? 'Mode akses: <Full> (bisa ubah data).' : 'Mode akses: <View> (hanya baca).'}</span>
                 </div>
             </div>
 
             {/* Modals */}
-            {isAddModalOpen && <UserModal onClose={() => setIsAddModalOpen(false)} />}
-            {editingUser && <UserModal userToEdit={editingUser} onClose={() => setEditingUser(null)} />}
+            {canManageUserManagement && isAddModalOpen && <UserModal onClose={() => setIsAddModalOpen(false)} />}
+            {canManageUserManagement && editingUser && <UserModal userToEdit={editingUser} onClose={() => setEditingUser(null)} />}
         </div>
     );
 };
@@ -384,7 +422,7 @@ function UserModal({ userToEdit, onClose }: { userToEdit?: User | null; onClose:
     };
 
     const selectedRole = formData.role as UserRole;
-    const scopeDisabled = ['admin', 'kepala_sekolah', 'sarpras'].includes(selectedRole);
+    const scopeDisabled = selectedRole === 'admin';
 
     return (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
@@ -487,7 +525,7 @@ function UserModal({ userToEdit, onClose }: { userToEdit?: User | null; onClose:
                     <div className={`p-4 rounded-xl border ${scopeDisabled ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-orange-50 border-orange-100'}`}>
                         <label className={`block text-sm font-bold mb-1 ${scopeDisabled ? 'text-slate-500' : 'text-orange-800'}`}>Cakupan Operasional</label>
                         <p className={`text-xs mb-2 ${scopeDisabled ? 'text-slate-400' : 'text-orange-600'}`}>
-                            {scopeDisabled ? 'Peran ini memiliki akses global otomatis.' : 'Menentukan area laboratorium yang dapat dikelola.'}
+                            {scopeDisabled ? 'Admin memiliki akses global otomatis.' : 'Menentukan area laboratorium yang dapat diakses sesuai scope pengguna.'}
                         </p>
                         <select
                             value={formData.labScope || 'all'}

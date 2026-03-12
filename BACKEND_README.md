@@ -1,24 +1,25 @@
 # Backend Setup Instructions
 
-Since we are using Native PHP co-located in the `public/api` folder, you need to set up a Database and a PHP Server.
+Backend memakai Native PHP di `public/api` dan MySQL.
 
-## 1. Database Setup (MySQL)
-1.  Open **XAMPP Control Panel** (or Laragon).
-2.  Start **Apache** and **MySQL**.
-3.  Go to `http://localhost/phpmyadmin`.
-4.  Create a new database named: `inventory_db`.
-5.  Import the schema or run the SQL commands provided in `database_structure.sql`.
+## Opsi 1: Jalankan dengan Docker
+1. Jalankan `docker compose up --build`.
+2. MySQL akan bootstrap otomatis dari:
+   - `docker/mysql/init/1-schema.sql`
+   - `docker/mysql/init/2-seed.sql`
+3. phpMyAdmin tersedia di `http://localhost:8080`.
 
-## 2. API Configuration
-The default database configuration is in `public/api/config/database.php`:
--   Host: `localhost`
--   User: `root`
--   Pass: `` (Empty)
--   DB: `inventory_db`
+## Opsi 2: Jalankan manual dengan XAMPP / Laragon
+1. Start Apache dan MySQL.
+2. Buat database `inventory_db`.
+3. Import:
+   - `docker/mysql/init/1-schema.sql`
+   - `docker/mysql/init/2-seed.sql`
 
-*Change these if your XAMPP settings are different.*
+## API Configuration
+Default konfigurasi database ada di `public/api/config/database.php`.
+Sesuaikan host, username, password, dan nama database jika environment Anda berbeda.
 
-## 3. Testing the API
-You can test if the API is reachable by accessing:
+## Testing API
+Endpoint pengecekan backend tersedia di:
 `http://localhost/projectpkl/Inventory/public/api/test.php`
-(URL depends on where your project folder is inside `htdocs`. If you use `php -S`, check that URL).

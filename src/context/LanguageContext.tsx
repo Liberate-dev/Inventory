@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { getAuthHeaders, getAuthToken } from '../utils/api';
 
 type Language = 'en' | 'id';
 
@@ -39,7 +40,12 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
 
         const loadLanguagePreference = async () => {
             try {
-                const response = await fetch(`${PREFERENCES_ENDPOINT}?user_id=${encodeURIComponent(userId)}`);
+                const token = getAuthToken();
+                if (!token) return;
+
+                const response = await fetch(`${PREFERENCES_ENDPOINT}?user_id=${encodeURIComponent(userId)}`, {
+                    headers: getAuthHeaders()
+                });
                 const payload = await response.json().catch(() => ({})) as { status?: string; preferences?: { language?: string } };
                 if (!response.ok || payload.status === 'error') return;
 
@@ -68,7 +74,7 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
 
                 void fetch(PREFERENCES_ENDPOINT, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({
                         userId: parsed.id,
                         language: nextLanguage
@@ -90,7 +96,7 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
         'operations': { en: 'Operations', id: 'Operasional' },
         'assets': { en: 'Assets', id: 'Aset' },
         'monthly_report': { en: 'Monthly Report', id: 'Laporan Bulanan' },
-        'print_assets': { en: 'Label & Inventory Codes', id: 'Label & kode inventaris' },
+        'print_assets': { en: 'Label & Inventory Codes', id: 'Manajemen Kode Inventaris' },
         'inventory_code_management': { en: 'Inventory Code Management', id: 'Manajemen Kode Inventaris' },
         'user_management': { en: 'User Management', id: 'Manajemen Pengguna' },
         'my_profile': { en: 'My Profile', id: 'Profil Saya' },

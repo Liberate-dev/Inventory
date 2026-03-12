@@ -1,6 +1,7 @@
 <?php
 include_once '../config/cors.php';
 include_once '../config/database.php';
+include_once '../config/auth.php';
 
 header('Content-Type: application/json');
 
@@ -29,7 +30,7 @@ function respond(int $statusCode, array $data): void
     exit;
 }
 
-function normalizeRoomRows(PDO $db): array
+function normalizeRoomRows(PDO $db, array $authUser): array
 {
     // 1. Rooms
     $stmtRooms = $db->prepare("SELECT * FROM rooms ORDER BY id ASC");
@@ -45,7 +46,7 @@ function normalizeRoomRows(PDO $db): array
     $containers = $stmtContainers->fetchAll(PDO::FETCH_ASSOC);
 
     // 3. Items
-    $stmtItems = $db->prepare("SELECT * FROM items ORDER BY id ASC");
+    $stmtItems = $db->prepare("SELECT * FROM items WHERE deleted_at IS NULL ORDER BY id ASC");
     $stmtItems->execute();
     $items = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
 
@@ -128,7 +129,14 @@ function normalizeRoomRows(PDO $db): array
     }
     unset($room);
 
-    return $rooms;
+    if (!authIsScopeRestricted($authUser)) {
+        return $rooms;
+    }
+
+    $labScope = (string) ($authUser['lab_scope'] ?? '');
+    return array_values(array_filter($rooms, function ($room) use ($labScope) {
+        return isset($room['type']) && (string) $room['type'] === $labScope;
+    }));
 }
 
 function validateId($value): ?int
@@ -143,6 +151,36 @@ function validateId($value): ?int
     }
 
     return $intValue;
+}
+
+function normalizeRoomTypeOrFail(string $type): string
+{
+    $allowedTypes = ['computer', 'physics', 'biology', 'classroom', 'office', 'warehouse', 'other'];
+    if (!in_array($type, $allowedTypes, true)) {
+        respond(400, ["status" => "error", "message" => "Invalid room type."]);
+    }
+
+    return $type;
+}
+
+function normalizeRoomCategoryOrFail(string $category): string
+{
+    $allowedCategories = ['lab', 'non-lab'];
+    if (!in_array($category, $allowedCategories, true)) {
+        respond(400, ["status" => "error", "message" => "Invalid room category."]);
+    }
+
+    return $category;
+}
+
+function normalizeContainerTypeOrFail(string $type): string
+{
+    $allowedTypes = ['table', 'cupboard', 'shelf'];
+    if (!in_array($type, $allowedTypes, true)) {
+        respond(400, ["status" => "error", "message" => "Invalid container type."]);
+    }
+
+    return $type;
 }
 
 function normalizeLogDate($value): string
@@ -167,7 +205,7 @@ function normalizeLogDate($value): string
     return date('Y-m-d H:i:s');
 }
 
-function syncContainerItems(PDO $db, int $containerId, array $items): void
+function syncContainerItems(PDO $db, array $authUser, int $containerId, array $items): void
 {
     $allowedConditions = ['good', 'service', 'damaged', 'broken'];
     $allowedStatuses = ['available', 'in_use', 'maintenance', 'missing'];
@@ -284,6 +322,8 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
         }
 
         if ($hasExistingItem) {
+            authAssertItemScope($db, $authUser, $itemId);
+
             $updateItemStmt->bindValue(':id', $itemId, PDO::PARAM_INT);
             $updateItemStmt->bindValue(':container_id', $containerId, PDO::PARAM_INT);
             $updateItemStmt->bindValue(':name', $name, PDO::PARAM_STR);
@@ -432,31 +472,40 @@ function syncContainerItems(PDO $db, int $containerId, array $items): void
 
     if (count($keptItemIds) > 0) {
         $placeholders = implode(',', array_fill(0, count($keptItemIds), '?'));
-        $deleteRemovedStmt = $db->prepare("DELETE FROM items WHERE container_id = ? AND id NOT IN ($placeholders)");
+        $deleteRemovedStmt = $db->prepare("UPDATE items SET deleted_at = NOW() WHERE container_id = ? AND id NOT IN ($placeholders) AND deleted_at IS NULL");
         $deleteRemovedStmt->execute(array_merge([$containerId], $keptItemIds));
     } else {
-        $deleteAllStmt = $db->prepare("DELETE FROM items WHERE container_id = :container_id");
+        $deleteAllStmt = $db->prepare("UPDATE items SET deleted_at = NOW() WHERE container_id = :container_id AND deleted_at IS NULL");
         $deleteAllStmt->bindParam(':container_id', $containerId, PDO::PARAM_INT);
         $deleteAllStmt->execute();
     }
 }
 
 if ($method == 'GET') {
-    respond(200, normalizeRoomRows($db));
+    $authUser = authRequireFeature($db, 'rooms', 'view');
+    respond(200, normalizeRoomRows($db, $authUser));
 }
 
 if ($method == 'POST') {
+    $authUser = authCurrentUser($db, true);
     if ($entity === 'room') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         if (!isset($payload['name'], $payload['type'], $payload['category'])) {
             respond(400, ["status" => "error", "message" => "Incomplete room payload."]);
         }
 
         $manualId = validateId($payload['id'] ?? null);
         $name = trim((string) $payload['name']);
-        $type = (string) $payload['type'];
-        $category = (string) $payload['category'];
+        $type = normalizeRoomTypeOrFail((string) $payload['type']);
+        $category = normalizeRoomCategoryOrFail((string) $payload['category']);
         $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
         $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : 0;
+
+        if (!authCanAccessRoomType($authUser, $type)) {
+            respond(403, ["status" => "error", "message" => "Room type is outside your scope."]);
+        }
 
         if ($manualId !== null) {
             $stmt = $db->prepare(
@@ -488,13 +537,18 @@ if ($method == 'POST') {
     }
 
     if ($entity === 'container') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
         if ($roomId === null || !isset($payload['name'], $payload['type'])) {
             respond(400, ["status" => "error", "message" => "Incomplete container payload."]);
         }
 
+        authAssertRoomScope($db, $authUser, $roomId);
+
         $name = trim((string) $payload['name']);
-        $type = (string) $payload['type'];
+        $type = normalizeContainerTypeOrFail((string) $payload['type']);
         $status = isset($payload['status']) ? (string) $payload['status'] : 'good';
         if (!in_array($status, ['good', 'warning', 'error'], true)) {
             $status = 'good';
@@ -519,7 +573,7 @@ if ($method == 'POST') {
 
             $containerId = (int) $db->lastInsertId();
             if (isset($payload['items']) && is_array($payload['items'])) {
-                syncContainerItems($db, $containerId, $payload['items']);
+                syncContainerItems($db, $authUser, $containerId, $payload['items']);
             }
 
             $db->commit();
@@ -533,11 +587,16 @@ if ($method == 'POST') {
     }
 
     if ($entity === 'container-bulk') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
         $containers = $payload['containers'] ?? null;
         if ($roomId === null || !is_array($containers)) {
             respond(400, ["status" => "error", "message" => "Invalid bulk container payload."]);
         }
+
+        authAssertRoomScope($db, $authUser, $roomId);
 
         $insertedIds = [];
         $db->beginTransaction();
@@ -553,7 +612,7 @@ if ($method == 'POST') {
                 }
 
                 $name = trim((string) $container['name']);
-                $type = (string) $container['type'];
+                $type = normalizeContainerTypeOrFail((string) $container['type']);
                 $status = isset($container['status']) ? (string) $container['status'] : 'good';
                 if (!in_array($status, ['good', 'warning', 'error'], true)) {
                     $status = 'good';
@@ -574,7 +633,7 @@ if ($method == 'POST') {
                 $insertedIds[] = (string) $containerId;
 
                 if (isset($container['items']) && is_array($container['items'])) {
-                    syncContainerItems($db, $containerId, $container['items']);
+                    syncContainerItems($db, $authUser, $containerId, $container['items']);
                 }
             }
 
@@ -589,11 +648,16 @@ if ($method == 'POST') {
     }
 
     if ($entity === 'container-reorder') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
         $containerIds = $payload['containerIds'] ?? null;
         if ($roomId === null || !is_array($containerIds)) {
             respond(400, ["status" => "error", "message" => "Invalid reorder payload."]);
         }
+
+        authAssertRoomScope($db, $authUser, $roomId);
 
         $updateStmt = $db->prepare(
             "UPDATE containers
@@ -632,17 +696,26 @@ if ($method == 'POST') {
 }
 
 if ($method == 'PUT') {
+    $authUser = authCurrentUser($db, true);
     if ($entity === 'room') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $roomId = validateId($payload['id'] ?? null);
         if ($roomId === null || !isset($payload['name'], $payload['type'], $payload['category'])) {
             respond(400, ["status" => "error", "message" => "Incomplete room update payload."]);
         }
 
         $name = trim((string) $payload['name']);
-        $type = (string) $payload['type'];
-        $category = (string) $payload['category'];
+        $type = normalizeRoomTypeOrFail((string) $payload['type']);
+        $category = normalizeRoomCategoryOrFail((string) $payload['category']);
         $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
         $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : 0;
+
+        authAssertRoomScope($db, $authUser, $roomId);
+        if (!authCanAccessRoomType($authUser, $type)) {
+            respond(403, ["status" => "error", "message" => "Room type is outside your scope."]);
+        }
 
         $stmt = $db->prepare(
             "UPDATE rooms
@@ -661,6 +734,9 @@ if ($method == 'PUT') {
     }
 
     if ($entity === 'container') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $containerId = validateId($payload['id'] ?? null);
         $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? null);
 
@@ -668,8 +744,11 @@ if ($method == 'PUT') {
             respond(400, ["status" => "error", "message" => "Incomplete container update payload."]);
         }
 
+        authAssertRoomScope($db, $authUser, $roomId);
+        authAssertContainerScope($db, $authUser, $containerId, $roomId);
+
         $name = trim((string) $payload['name']);
-        $type = (string) $payload['type'];
+        $type = normalizeContainerTypeOrFail((string) $payload['type']);
         $status = isset($payload['status']) ? (string) $payload['status'] : 'good';
         if (!in_array($status, ['good', 'warning', 'error'], true)) {
             $status = 'good';
@@ -695,7 +774,7 @@ if ($method == 'PUT') {
             $stmt->execute();
 
             if (isset($payload['items']) && is_array($payload['items'])) {
-                syncContainerItems($db, $containerId, $payload['items']);
+                syncContainerItems($db, $authUser, $containerId, $payload['items']);
             }
 
             $db->commit();
@@ -709,10 +788,15 @@ if ($method == 'PUT') {
     }
 
     if ($entity === 'room-state') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $roomId = validateId($payload['id'] ?? null);
         if ($roomId === null) {
             respond(400, ["status" => "error", "message" => "Invalid room id for room-state update."]);
         }
+
+        authAssertRoomScope($db, $authUser, $roomId);
 
         $name = isset($payload['name']) ? trim((string) $payload['name']) : null;
         $type = isset($payload['type']) ? (string) $payload['type'] : null;
@@ -729,8 +813,8 @@ if ($method == 'PUT') {
                      SET name = :name, type = :type, category = :category, custom_type = :custom_type, capacity = :capacity
                      WHERE id = :id"
                 );
-                $safeType = $type ?? 'other';
-                $safeCategory = $category ?? 'lab';
+                $safeType = $type !== null ? normalizeRoomTypeOrFail($type) : 'other';
+                $safeCategory = $category !== null ? normalizeRoomCategoryOrFail($category) : 'lab';
                 $safeCapacity = $capacity ?? 0;
                 $updateRoomStmt->bindParam(':id', $roomId, PDO::PARAM_INT);
                 $updateRoomStmt->bindParam(':name', $name, PDO::PARAM_STR);
@@ -761,7 +845,7 @@ if ($method == 'PUT') {
 
                 $containerId = validateId($container['id'] ?? null);
                 $containerName = trim((string) ($container['name'] ?? ("Container " . ($index + 1))));
-                $containerType = (string) ($container['type'] ?? 'table');
+                $containerType = normalizeContainerTypeOrFail((string) ($container['type'] ?? 'table'));
                 $containerStatus = (string) ($container['status'] ?? 'good');
                 if (!in_array($containerStatus, ['good', 'warning', 'error'], true)) {
                     $containerStatus = 'good';
@@ -785,7 +869,7 @@ if ($method == 'PUT') {
                         $updateContainerStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
                         $updateContainerStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
                         $updateContainerStmt->execute();
-                        syncContainerItems($db, $containerId, $items);
+                        syncContainerItems($db, $authUser, $containerId, $items);
                         $keptContainerIds[] = $containerId;
                         continue;
                     }
@@ -800,7 +884,7 @@ if ($method == 'PUT') {
                 $insertContainerStmt->execute();
 
                 $newContainerId = (int) $db->lastInsertId();
-                syncContainerItems($db, $newContainerId, $items);
+                syncContainerItems($db, $authUser, $newContainerId, $items);
                 $keptContainerIds[] = $newContainerId;
             }
 
@@ -829,11 +913,17 @@ if ($method == 'PUT') {
 }
 
 if ($method == 'DELETE') {
+    $authUser = authCurrentUser($db, true);
     if ($entity === 'room') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $roomId = validateId($payload['id'] ?? $_GET['id'] ?? null);
         if ($roomId === null) {
             respond(400, ["status" => "error", "message" => "Invalid room id."]);
         }
+
+        authAssertRoomScope($db, $authUser, $roomId);
 
         $stmt = $db->prepare("DELETE FROM rooms WHERE id = :id");
         $stmt->bindParam(':id', $roomId, PDO::PARAM_INT);
@@ -843,11 +933,17 @@ if ($method == 'DELETE') {
     }
 
     if ($entity === 'container') {
+        if (!authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+            respond(403, ["status" => "error", "message" => "Access denied."]);
+        }
         $containerId = validateId($payload['id'] ?? $_GET['id'] ?? null);
         $roomId = validateId($payload['roomId'] ?? $payload['room_id'] ?? $_GET['room_id'] ?? null);
         if ($containerId === null || $roomId === null) {
             respond(400, ["status" => "error", "message" => "Invalid container id or room id."]);
         }
+
+        authAssertRoomScope($db, $authUser, $roomId);
+        authAssertContainerScope($db, $authUser, $containerId, $roomId);
 
         $stmt = $db->prepare("DELETE FROM containers WHERE id = :id AND room_id = :room_id");
         $stmt->bindParam(':id', $containerId, PDO::PARAM_INT);
