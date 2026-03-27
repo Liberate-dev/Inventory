@@ -9,6 +9,7 @@ export type FeatureKey =
     | 'dashboard'
     | 'rooms'
     | 'service_requests'
+    | 'item_management'
     | 'operations'
     | 'reports'
     | 'print_assets'
@@ -21,6 +22,7 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full' },
     rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view' },
     service_requests: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'view', sarpras: 'full' },
+    item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'full' },
     operations: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none' },
     reports: { admin: 'none', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full' },
     print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full' },
@@ -28,10 +30,23 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
 };
 
+const getLockedAccessLevel = (feature: FeatureKey, role: UserRole): AccessLevel | null => {
+    if (role === 'admin') {
+        return DEFAULT_MATRIX[feature][role];
+    }
+
+    if (feature === 'item_management' && role === 'sarpras') {
+        return DEFAULT_MATRIX[feature][role];
+    }
+
+    return null;
+};
+
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
     dashboard: 'Dashboard',
     rooms: 'Ruangan & Inventaris',
     service_requests: 'Permintaan Layanan',
+    item_management: 'Manajemen Barang',
     operations: 'Operasional',
     reports: 'Laporan Bulanan',
     print_assets: 'Cetak Label, Kartu & Kode',
@@ -52,9 +67,15 @@ const normalizeMatrix = (raw: unknown): AccessMatrix => {
         if (!featureSource || typeof featureSource !== 'object') continue;
 
         for (const role of Object.keys(DEFAULT_MATRIX[feature]) as UserRole[]) {
+            const lockedLevel = getLockedAccessLevel(feature, role);
+            if (lockedLevel !== null) {
+                next[feature][role] = lockedLevel;
+                continue;
+            }
+
             const candidate = (featureSource as Partial<Record<UserRole, AccessLevel>>)[role];
             if (candidate === 'full' || candidate === 'view' || candidate === 'none') {
-                next[feature][role] = role === 'admin' ? DEFAULT_MATRIX[feature][role] : candidate;
+                next[feature][role] = candidate;
             }
         }
     }

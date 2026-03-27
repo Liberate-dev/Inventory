@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Diagrams — Portal Inventory Panderman</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.6;
+        }
+
+        .page-break {
+            page-break-after: always;
+            break-after: page;
+        }
+
+        header {
+            background: linear-gradient(135deg, #000080, #1e3a8a);
+            color: white;
+            padding: 48px 32px;
+            text-align: center;
+        }
+        header h1 { font-size: 2rem; font-weight: 800; letter-spacing: 2px; }
+        header p { font-size: 0.95rem; opacity: 0.8; margin-top: 8px; }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+
+        section {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+            margin-bottom: 40px;
+            overflow: hidden;
+        }
+
+        .section-header {
+            padding: 24px 32px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .section-header h2 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section-header p { font-size: 0.85rem; color: #64748b; margin-top: 4px; }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-lab { background: #eef2ff; color: #3730a3; }
+        .badge-nonlab { background: #fffbeb; color: #92400e; }
+        .badge-admin { background: #fef2f2; color: #991b1b; }
+
+        .diagram-wrapper {
+            padding: 32px;
+            display: flex;
+            justify-content: center;
+            overflow-x: auto;
+        }
+
+        .diagram-wrapper .mermaid {
+            min-width: 600px;
+        }
+
+        /* Access Matrix Table */
+        .table-wrapper { padding: 0 32px 32px; }
+        .table-wrapper h3 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #334155;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        thead th {
+            background: #f1f5f9;
+            padding: 10px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #475569;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        tbody td {
+            padding: 10px 16px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        tbody tr:hover { background: #f8fafc; }
+        .access-full { color: #059669; font-weight: 600; }
+        .access-view { color: #d97706; font-weight: 600; }
+        .access-none { color: #94a3b8; }
+
+        /* Print Styles */
+        @media print {
+            body { background: white; }
+            header { padding: 24px 16px; }
+            section { box-shadow: none; border: 1px solid #e2e8f0; break-inside: avoid; }
+            .container { padding: 16px; }
+            .no-print { display: none !important; }
+        }
+
+        /* Control Bar */
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            padding: 24px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #000080;
+            color: white;
+        }
+        .btn-primary:hover { background: #1e3a8a; transform: translateY(-1px); }
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #334155;
+        }
+        .btn-secondary:hover { background: #e2e8f0; }
+
+        footer {
+            text-align: center;
+            padding: 24px;
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>WORKFLOW DIAGRAMS</h1>
+    <p>Portal Inventory — SMPK Santa Maria 2 Malang</p>
+</header>
+
+<div class="controls no-print">
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    <button class="btn btn-secondary" onclick="downloadAllSVG()">📥 Download All as SVG</button>
+</div>
+
+<div class="container">
+
+    <!-- ==================== SECTION 1: LAB ==================== -->
+    <section class="page-break">
+        <div class="section-header">
+            <h2>🔬 Workflow Portal LAB <span class="badge badge-lab">Lab</span></h2>
+            <p>Alur kerja untuk role Kepala Lab dan Guru dalam mengelola inventaris laboratorium</p>
+        </div>
+        <div class="diagram-wrapper">
+            <div class="mermaid" id="diagram-lab">
+flowchart TD
+    subgraph LOGIN["🔐 Autentikasi"]
+        A["User Login"] --> B{"Peran?"}
+    end
+
+    B -->|Kepala Lab| KL_START["Pilih Portal LAB"]
+    B -->|Guru| GURU_START["Pilih Portal LAB"]
+
+    subgraph DASH_LAB["📊 Dashboard Lab"]
+        KL_START --> D1["Dashboard Overview"]
+        GURU_START --> D1
+        D1 --> D1a["Statistik: Lab Aktif, Total Aset, Pending Issues, In-Progress"]
+        D1 --> D1b["Health Monitor per Lab"]
+        D1 --> D1c["Peringatan Stok Rendah - Consumable"]
+        D1 --> D1d["Trend Maintenance dan Aktivitas Terkini"]
+    end
+
+    subgraph ROOMS_LAB["🏠 Ruangan Lab"]
+        D1 --> R1["Daftar Lab - Sesuai Lab Scope"]
+        R1 --> R2["Detail Lab"]
+        R2 --> R3["Lihat Container atau Stasiun Kerja"]
+        R3 --> R4["Lihat Item di Container"]
+        R4 --> R5{"Aksi pada Item?"}
+        R5 -->|"Ubah Kondisi"| R6["Update Kondisi Item"]
+        R5 -->|"Ubah Status"| R7["Update Status Item"]
+        R5 -->|"Laporkan Masalah"| SR1["Buat Service Request"]
+    end
+
+    subgraph ITEM_MGMT_LAB["📦 Manajemen Barang"]
+        D1 --> IM1["Daftar Semua Barang"]
+        IM1 --> IM2{"Aksi?"}
+        IM2 -->|"Tambah"| IM3["Tambah Barang ke Container"]
+        IM2 -->|"Edit"| IM4["Edit Detail Barang"]
+        IM2 -->|"Hapus"| IM5["Hapus Barang"]
+        IM2 -->|"Import"| IM6["Import via CSV"]
+    end
+
+    subgraph SR_LAB["⚠️ Service Request"]
+        SR1 --> SR2["Status: Pending"]
+        SR2 --> SR3{"Review oleh Sarpras"}
+        SR3 -->|"Terima"| SR4["Status: Accepted - In Progress"]
+        SR3 -->|"Tolak"| SR5["Status: Denied + Alasan"]
+        SR4 --> SR6["Selesai: Repaired atau Broken"]
+        SR6 --> SR7["Status: Completed"]
+    end
+
+    subgraph OPS_LAB["🔄 Operasional"]
+        D1 --> OP1["Halaman Operasional"]
+        OP1 --> OP2{"Jenis Operasi?"}
+        OP2 -->|"Transfer"| OP3["Pilih Item lalu Pilih Tujuan"]
+        OP3 --> OP4["Verifikasi PIN Kepala Lab"]
+        OP4 --> OP5["Item Dipindahkan ke Lab Lain"]
+        OP2 -->|"Penggunaan"| OP6["Catat Penggunaan Consumable"]
+        OP6 --> OP7["Kurangi Stok + Log"]
+    end
+
+    subgraph REPORT_LAB["📄 Laporan"]
+        D1 --> RPT1["Laporan Bulanan"]
+        RPT1 --> RPT2["Download PDF atau Excel"]
+    end
+
+    style LOGIN fill:#f0f4ff,stroke:#000080,color:#000080
+    style DASH_LAB fill:#eef2ff,stroke:#000080,color:#1e293b
+    style ROOMS_LAB fill:#f0fdf4,stroke:#059669,color:#1e293b
+    style ITEM_MGMT_LAB fill:#fff7ed,stroke:#d97706,color:#1e293b
+    style SR_LAB fill:#fef2f2,stroke:#dc2626,color:#1e293b
+    style OPS_LAB fill:#faf5ff,stroke:#7c3aed,color:#1e293b
+    style REPORT_LAB fill:#f0f9ff,stroke:#0284c7,color:#1e293b
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <h3>Matriks Akses Fitur — Portal Lab</h3>
+            <table>
+                <thead>
+                    <tr><th>Fitur</th><th>Kepala Lab</th><th>Guru</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Dashboard</td><td class="access-full">✅ Full</td><td class="access-full">✅ Full</td></tr>
+                    <tr><td>Ruangan & Inventaris</td><td class="access-full">✅ Full</td><td class="access-full">✅ Full</td></tr>
+                    <tr><td>Manajemen Barang</td><td class="access-full">✅ Full</td><td class="access-full">✅ Full</td></tr>
+                    <tr><td>Service Requests</td><td class="access-view">👁 View Only</td><td class="access-view">👁 View Only</td></tr>
+                    <tr><td>Operasional (Transfer & Penggunaan)</td><td class="access-full">✅ Full</td><td class="access-full">✅ Full</td></tr>
+                    <tr><td>Laporan Bulanan</td><td class="access-full">✅ Full</td><td class="access-none">— Tidak Ada</td></tr>
+                    <tr><td>Cetak Label & Kode</td><td class="access-none">— Tidak Ada</td><td class="access-none">— Tidak Ada</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ==================== SECTION 2: NON-LAB ==================== -->
+    <section class="page-break">
+        <div class="section-header">
+            <h2>🏫 Workflow Portal NON-LAB <span class="badge badge-nonlab">Non-Lab</span></h2>
+            <p>Alur kerja untuk role Kepala Sekolah dan Sarpras dalam mengelola inventaris non-laboratorium</p>
+        </div>
+        <div class="diagram-wrapper">
+            <div class="mermaid" id="diagram-nonlab">
+flowchart TD
+    subgraph LOGIN["🔐 Autentikasi"]
+        A["User Login"] --> B{"Peran?"}
+    end
+
+    B -->|"Kepala Sekolah"| KS_START["Pilih Portal NON-LAB"]
+    B -->|"Sarpras"| SAR_START["Pilih Portal NON-LAB"]
+
+    subgraph DASH_NL["📊 Dashboard Non-Lab"]
+        KS_START --> D1["Dashboard Overview"]
+        SAR_START --> D1
+        D1 --> D1a["Statistik: Ruangan Aktif, Total Aset, Pending Issues"]
+        D1 --> D1b["Health Monitor per Ruangan"]
+        D1 --> D1d["Trend Maintenance dan Aktivitas Terkini"]
+    end
+
+    subgraph ROOMS_NL["🏠 Ruangan Non-Lab"]
+        D1 --> R1["Daftar Ruangan: Kelas, Kantor, Gudang, dll"]
+        R1 --> R2["Detail Ruangan"]
+        R2 --> R3["Lihat Container atau Kelompok Barang"]
+        R3 --> R4["Lihat Item di Container"]
+        R4 --> R5{"Aksi pada Item?"}
+        R5 -->|"Lihat Detail"| R6["Info Lengkap Item"]
+        R5 -->|"Laporkan Masalah"| SR1["Buat Service Request"]
+    end
+
+    subgraph ITEM_NL["📦 Manajemen Barang - Sarpras Full Control"]
+        D1 --> IM1["Daftar Semua Barang"]
+        IM1 --> IM2["Lihat Detail Barang"]
+        IM2 --> IM3{"Aksi Sarpras?"}
+        IM3 -->|"Nonaktifkan"| IM4["Soft Delete Barang"]
+        IM3 -->|"Pulihkan"| IM5["Restore Barang"]
+        IM3 -->|"Hapus Permanen"| IM6["Hard Delete Barang"]
+    end
+
+    subgraph SR_NL["⚠️ Service Request - Sarpras Full Control"]
+        SR1 --> SR2["Status: Pending"]
+        SR2 --> SR3{"Review oleh Sarpras"}
+        SR3 -->|"Terima"| SR4["Status: Accepted"]
+        SR3 -->|"Tolak"| SR5["Status: Denied + Alasan"]
+        SR4 --> SR6{"Hasil Perbaikan?"}
+        SR6 -->|"Berhasil"| SR7["Completed: Repaired"]
+        SR6 -->|"Tidak bisa diperbaiki"| SR8["Completed: Broken"]
+    end
+
+    subgraph PRINT_NL["🖨️ Cetak Label, Kartu dan Kode Inventaris"]
+        D1 --> PR1["Halaman Cetak Aset"]
+        PR1 --> PR2["Cetak Label QR atau Barcode"]
+        PR1 --> PR3["Cetak Kartu Inventaris"]
+        PR1 --> PR4["Manajemen Kode Inventaris"]
+    end
+
+    subgraph REPORT_NL["📄 Laporan"]
+        D1 --> RPT1["Laporan Bulanan"]
+        RPT1 --> RPT2["Download PDF atau Excel"]
+    end
+
+    style LOGIN fill:#f0f4ff,stroke:#000080,color:#000080
+    style DASH_NL fill:#fffbeb,stroke:#d97706,color:#1e293b
+    style ROOMS_NL fill:#f0fdf4,stroke:#059669,color:#1e293b
+    style ITEM_NL fill:#fff7ed,stroke:#d97706,color:#1e293b
+    style SR_NL fill:#fef2f2,stroke:#dc2626,color:#1e293b
+    style PRINT_NL fill:#ecfdf5,stroke:#059669,color:#1e293b
+    style REPORT_NL fill:#f0f9ff,stroke:#0284c7,color:#1e293b
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <h3>Matriks Akses Fitur — Portal Non-Lab</h3>
+            <table>
+                <thead>
+                    <tr><th>Fitur</th><th>Kepala Sekolah</th><th>Sarpras</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Dashboard</td><td class="access-full">✅ Full</td><td class="access-full">✅ Full</td></tr>
+                    <tr><td>Ruangan & Inventaris</td><td class="access-view">👁 View Only</td><td class="access-view">👁 View Only</td></tr>
+                    <tr><td>Manajemen Barang</td><td class="access-view">👁 View Only</td><td class="access-full">✅ Full (Kelola)</td></tr>
+                    <tr><td>Service Requests</td><td class="access-view">👁 View Only</td><td class="access-full">✅ Full (Kelola)</td></tr>
+                    <tr><td>Operasional</td><td class="access-none">— Tidak Ada</td><td class="access-none">— Tidak Ada</td></tr>
+                    <tr><td>Laporan Bulanan</td><td class="access-full">✅ Full</td><td class="access-full">✅ Full</td></tr>
+                    <tr><td>Cetak Label & Kode</td><td class="access-view">👁 View Only</td><td class="access-full">✅ Full</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ==================== SECTION 3: ADMIN ==================== -->
+    <section>
+        <div class="section-header">
+            <h2>🔒 Workflow Admin <span class="badge badge-admin">Admin</span></h2>
+            <p>Admin terpisah dari portal — langsung ke halaman manajemen sistem</p>
+        </div>
+        <div class="diagram-wrapper">
+            <div class="mermaid" id="diagram-admin">
+flowchart TD
+    A["Admin Login"] --> B["Admin Dashboard"]
+
+    B --> C["👥 Manajemen Pengguna"]
+    B --> D["📋 System Logs"]
+    B --> E["🔐 Access Matrix"]
+
+    C --> C1["Tambah, Edit, Hapus User"]
+    C --> C2["Assign Role dan Lab Scope"]
+
+    D --> D1["Lihat Log Aktivitas Sistem"]
+    D --> D2["Filter berdasarkan User atau Aksi"]
+
+    E --> E1["Atur Hak Akses per Fitur per Role"]
+    E --> E2["Reset ke Default"]
+
+    style A fill:#fef2f2,stroke:#dc2626,color:#991b1b
+    style B fill:#f0f4ff,stroke:#000080,color:#000080
+    style C fill:#f5f3ff,stroke:#7c3aed,color:#1e293b
+    style D fill:#f0f9ff,stroke:#0284c7,color:#1e293b
+    style E fill:#fff7ed,stroke:#d97706,color:#1e293b
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <h3>Matriks Akses — Admin</h3>
+            <table>
+                <thead>
+                    <tr><th>Fitur</th><th>Admin</th><th>Keterangan</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Dashboard Admin</td><td class="access-full">✅ Full</td><td>Statistik keseluruhan sistem</td></tr>
+                    <tr><td>Manajemen Pengguna</td><td class="access-full">✅ Full</td><td>CRUD pengguna, assign role & scope</td></tr>
+                    <tr><td>System Logs</td><td class="access-full">✅ Full</td><td>Audit trail aktivitas sistem</td></tr>
+                    <tr><td>Access Matrix</td><td class="access-full">✅ Full</td><td>Konfigurasi hak akses fitur</td></tr>
+                    <tr><td>Portal Lab / Non-Lab</td><td class="access-none">— Tidak Ada</td><td>Admin tidak memiliki akses portal</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</div>
+
+<footer>
+    Portal Inventory Panderman — SMPK Santa Maria 2 Malang &nbsp;•&nbsp; Dibuat 25 Maret 2026
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+    mermaid.initialize({
+        startOnLoad: true,
+        theme: 'base',
+        themeVariables: {
+            primaryColor: '#eef2ff',
+            primaryTextColor: '#1e293b',
+            primaryBorderColor: '#000080',
+            lineColor: '#6366f1',
+            secondaryColor: '#f0fdf4',
+            tertiaryColor: '#fffbeb',
+            fontFamily: 'Inter, sans-serif',
+            fontSize: '13px'
+        },
+        flowchart: {
+            htmlLabels: true,
+            curve: 'basis',
+            padding: 16,
+            nodeSpacing: 30,
+            rankSpacing: 50,
+            useMaxWidth: true
+        }
+    });
+
+    function downloadAllSVG() {
+        const diagrams = [
+            { id: 'diagram-lab', name: 'workflow_portal_lab.svg' },
+            { id: 'diagram-nonlab', name: 'workflow_portal_nonlab.svg' },
+            { id: 'diagram-admin', name: 'workflow_admin.svg' }
+        ];
+
+        diagrams.forEach(({ id, name }) => {
+            const container = document.getElementById(id);
+            const svg = container?.querySelector('svg');
+            if (!svg) { alert('Diagram belum dirender: ' + name); return; }
+
+            const clone = svg.cloneNode(true);
+            clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+            const blob = new Blob([clone.outerHTML], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+</script>
+
+</body>
+</html>

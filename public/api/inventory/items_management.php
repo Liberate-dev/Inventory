@@ -19,6 +19,12 @@ $method = $_SERVER['REQUEST_METHOD'];
 $user = authCurrentUser($db, true);
 
 if ($method === 'GET') {
+    if (!authHasFeatureAccess($user, 'item_management', 'view', $db)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Access denied.']);
+        exit;
+    }
+
     try {
         $stmt = $db->prepare('
             SELECT 
@@ -61,6 +67,12 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
+    if (!authHasFeatureAccess($user, 'item_management', 'full', $db)) {
+        http_response_code(403);
+        echo json_encode(['status' => 'error', 'message' => 'Access denied.']);
+        exit;
+    }
+
     $input = json_decode(file_get_contents('php://input'), true);
     $action = $input['action'] ?? '';
     $itemId = $input['item_id'] ?? '';
@@ -109,13 +121,6 @@ if ($method === 'POST') {
 
             $message = 'Barang dinonaktifkan (soft delete).';
         } elseif ($action === 'hard_delete') {
-            // Check if admin
-            if ($user['role'] !== 'admin' && $user['role'] !== 'kepala_lab' && $user['role'] !== 'sarpras') {
-                http_response_code(403);
-                echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
-                exit;
-            }
-
             // Remove related logs first
             $logStmt = $db->prepare('DELETE FROM item_logs WHERE item_id = ?');
             $logStmt->execute([$resolvedItemId]);

@@ -28,7 +28,7 @@ const DashboardLayout = () => {
         { icon: LayoutDashboard, label: t('dashboard'), path: '/dashboard', feature: 'dashboard' as FeatureKey },
         { icon: Map, label: portalType === 'lab' ? t('lab_rooms') : 'Ruangan', path: '/dashboard/rooms', feature: 'rooms' as FeatureKey },
         { icon: AlertTriangle, label: t('service_requests'), path: '/dashboard/service-requests', feature: 'service_requests' as FeatureKey },
-        { icon: Package, label: 'Manajemen Barang', path: '/dashboard/items', feature: 'rooms' as FeatureKey },
+        { icon: Package, label: 'Manajemen Barang', path: '/dashboard/items', feature: 'item_management' as FeatureKey },
         { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', feature: 'operations' as FeatureKey },
         { icon: Printer, label: t('print_assets'), path: '/dashboard/print-assets', feature: 'print_assets' as FeatureKey },
         { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', feature: 'user_management' as FeatureKey },

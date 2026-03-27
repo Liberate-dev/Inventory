@@ -11,7 +11,7 @@ const ROLE_CONFIG: Record<UserRole, { label: string; color: string; bg: string; 
     kepala_lab: { label: 'Kepala Lab', color: 'text-emerald-700', bg: 'bg-emerald-100', description: 'Kelola inventaris lab, operasional, dan laporan.' },
     guru: { label: 'Guru / Asisten', color: 'text-blue-700', bg: 'bg-blue-100', description: 'Kelola inventaris lab dan operasional.' },
     kepala_sekolah: { label: 'Kepsek', color: 'text-amber-700', bg: 'bg-amber-100', description: 'Melihat laporan dan kondisi seluruh inventaris (read-only).' },
-    sarpras: { label: 'Sarpras', color: 'text-rose-700', bg: 'bg-rose-100', description: 'Melihat permintaan layanan dan inventaris (read-only).' },
+    sarpras: { label: 'Sarpras', color: 'text-rose-700', bg: 'bg-rose-100', description: 'Kelola permintaan layanan, manajemen barang, dan aset non-lab.' },
 };
 
 const ROLE_OPTIONS: UserRole[] = ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras'];
@@ -27,6 +27,9 @@ const LEVEL_CONFIG: Record<AccessLevel, { label: string; cellCls: string; icon: 
     none: { label: 'Tidak Ada', cellCls: 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200', icon: '—' },
 };
 const FEATURE_KEYS = Object.keys(FEATURE_LABELS) as FeatureKey[];
+
+const isLockedMatrixCell = (feature: FeatureKey, role: UserRole): boolean =>
+    role === 'admin' || (feature === 'item_management' && role === 'sarpras');
 
 // ── Component ─────────────────────────────────────────────────────────────────
 const UserManagement = () => {
@@ -194,8 +197,7 @@ const UserManagement = () => {
                                             const level = getAccess(featureKey, role);
                                             const cfg = LEVEL_CONFIG[level];
                                             const nextLevel = LEVEL_CYCLE[(LEVEL_CYCLE.indexOf(level) + 1) % LEVEL_CYCLE.length];
-                                            // Super admin uses fixed core policy and is not editable from matrix UI
-                                            const isLocked = role === 'admin' || !isEditingMatrix || !canManageUserManagement;
+                                            const isLocked = isLockedMatrixCell(featureKey, role) || !isEditingMatrix || !canManageUserManagement;
                                             return (
                                                 <td key={role} className="p-2 text-center">
                                                     <button
@@ -213,6 +215,7 @@ const UserManagement = () => {
                                                             }`}
                                                         title={
                                                             role === 'admin' ? 'Super Admin mengikuti kebijakan inti sistem'
+                                                                : featureKey === 'item_management' && role === 'sarpras' ? 'Sarpras wajib memiliki akses penuh untuk Manajemen Barang'
                                                                 : !isEditingMatrix ? 'Tekan Edit untuk mengubah'
                                                                     : `Klik untuk ubah ke ${LEVEL_CONFIG[nextLevel].label}`
                                                         }

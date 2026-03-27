@@ -17,6 +17,12 @@ vi.mock('../utils/api', () => ({
   getAuthHeaders: () => ({}),
 }));
 
+vi.mock('../context/AccessMatrixContext', () => ({
+  useAccessMatrix: () => ({
+    canEditFeature: () => true,
+  }),
+}));
+
 describe('ItemManagementPage', () => {
   beforeEach(() => {
     vi.stubGlobal(

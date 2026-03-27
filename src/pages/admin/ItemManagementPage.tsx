@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Package, RefreshCw, Trash2, Undo, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { getAuthHeaders } from '../../utils/api';
 import { ItemConditionBadge } from '../../components/common/ItemConditionBadge';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
@@ -18,13 +19,14 @@ type ItemWithLocation = Item & {
 
 const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
     const { user } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
     const [items, setItems] = useState<ItemWithLocation[]>([]);
     const [loading, setLoading] = useState(false);
     const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'deleted'>('all');
     const [search, setSearch] = useState('');
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-    const canManagerItems = user?.role === 'admin' || user?.role === 'sarpras' || user?.role === 'kepala_lab';
+    const canManageItems = user ? canEditFeature('item_management', user.role) : false;
 
     const fetchItems = async () => {
         setLoading(true);
@@ -208,7 +210,7 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
                                     </td>
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-2">
-                                            {!item.deleted_at && canManagerItems && (
+                                            {!item.deleted_at && canManageItems && (
                                                 <button
                                                     onClick={() => handleAction(item.id, 'soft_delete')}
                                                     className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
@@ -217,7 +219,7 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
                                                     <Trash2 size={16} />
                                                 </button>
                                             )}
-                                            {item.deleted_at && canManagerItems && (
+                                            {item.deleted_at && canManageItems && (
                                                 <>
                                                     <button
                                                         onClick={() => handleAction(item.id, 'restore')}
