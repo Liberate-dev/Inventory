@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kuesioner Uji Sistem – Portal Inventory Panderman</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy: #000080; --navy-dark: #000060; --navy-light: #e8e8f7;
+    --amber: #f59e0b; --amber-light: #fffbeb;
+    --slate-50: #f8fafc; --slate-100: #f1f5f9; --slate-200: #e2e8f0;
+    --slate-400: #94a3b8; --slate-500: #64748b; --slate-700: #334155; --slate-800: #1e293b;
+    --white: #ffffff; --red: #ef4444; --green: #10b981;
+  }
+  body { font-family: 'Inter', sans-serif; background: var(--slate-50); color: var(--slate-800); min-height: 100vh; padding: 2rem 1rem 4rem; }
+  .container { max-width: 820px; margin: 0 auto; }
+
+  .header { background: linear-gradient(135deg, var(--navy) 0%, #0000c8 100%); border-radius: 20px; padding: 2.5rem 2rem; color: white; text-align: center; margin-bottom: 2rem; position: relative; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,128,0.25); }
+  .header::before { content:''; position:absolute; width:300px; height:300px; border-radius:50%; background:rgba(255,255,255,0.05); top:-100px; right:-80px; }
+  .header::after { content:''; position:absolute; width:200px; height:200px; border-radius:50%; background:rgba(255,255,255,0.04); bottom:-60px; left:-40px; }
+  .header-badge { display:inline-block; background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.2); border-radius:999px; padding:0.3rem 1rem; font-size:0.75rem; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:1rem; position:relative; z-index:1; }
+  .header h1 { font-size:1.75rem; font-weight:800; margin-bottom:0.5rem; position:relative; z-index:1; line-height:1.3; }
+  .header p { font-size:0.95rem; opacity:0.8; position:relative; z-index:1; }
+
+  .portal-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; }
+  .portal-option { display:flex; align-items:center; gap:0.75rem; padding:1rem; border:2px solid var(--slate-200); border-radius:12px; cursor:pointer; transition:all 0.2s; user-select:none; }
+  .portal-option:hover { border-color:var(--navy); background:var(--navy-light); }
+  .portal-option input[type="radio"] { display:none; }
+  .portal-option.selected-lab { border-color:var(--navy); background:var(--navy-light); }
+  .portal-option.selected-nonlab { border-color:var(--amber); background:var(--amber-light); }
+  .portal-icon { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.2rem; flex-shrink:0; }
+  .portal-icon.lab { background:var(--navy); }
+  .portal-icon.nonlab { background:var(--amber); }
+  .portal-label { font-weight:600; font-size:0.9rem; color:var(--slate-800); }
+  .portal-sublabel { font-size:0.78rem; color:var(--slate-500); margin-top:0.1rem; }
+
+  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  .field-group label { display:block; font-size:0.85rem; font-weight:600; color:var(--slate-700); margin-bottom:0.4rem; }
+  .field-group input, .field-group select { width:100%; padding:0.6rem 0.9rem; border:1.5px solid var(--slate-200); border-radius:10px; font-family:'Inter',sans-serif; font-size:0.9rem; color:var(--slate-800); background:var(--white); transition:border-color 0.2s; outline:none; }
+  .field-group input:focus, .field-group select:focus { border-color:var(--navy); }
+
+  .section-card { background:white; border-radius:16px; border:1px solid var(--slate-200); box-shadow:0 2px 8px rgba(0,0,128,0.06); margin-bottom:1.5rem; overflow:hidden; }
+  .section-header { padding:1.25rem 1.75rem; display:flex; align-items:center; gap:0.9rem; border-bottom:1px solid var(--slate-100); }
+  .section-icon { width:44px; height:44px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0; }
+  .section-icon.pu { background:linear-gradient(135deg,var(--navy),#0000c8); }
+  .section-icon.peou { background:linear-gradient(135deg,#059669,#10b981); }
+  .section-title { font-size:1rem; font-weight:700; color:var(--slate-800); }
+  .section-desc { font-size:0.8rem; color:var(--slate-500); margin-top:0.15rem; }
+
+  .scale-legend { display:flex; gap:0.35rem; padding:0.75rem 1.75rem; background:var(--slate-50); border-bottom:1px solid var(--slate-100); flex-wrap:wrap; }
+  .scale-chip { display:inline-flex; align-items:center; gap:0.35rem; font-size:0.73rem; font-weight:500; color:var(--slate-500); padding:0.2rem 0.6rem; background:white; border:1px solid var(--slate-200); border-radius:999px; }
+  .scale-chip span { font-weight:700; color:var(--slate-700); }
+
+  .question-item { padding:1.25rem 1.75rem; border-bottom:1px solid var(--slate-100); transition:background 0.15s; }
+  .question-item:last-child { border-bottom:none; }
+  .question-item:hover { background:var(--slate-50); }
+  .question-num { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:6px; background:var(--navy-light); color:var(--navy); font-size:0.72rem; font-weight:800; margin-right:0.5rem; flex-shrink:0; }
+  .question-num.green { background:#d1fae5; color:#065f46; }
+  .question-text { font-size:0.92rem; font-weight:500; color:var(--slate-800); line-height:1.5; margin-bottom:1rem; display:flex; align-items:flex-start; gap:0.1rem; }
+  .likert-row { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+  .likert-btn { display:flex; flex-direction:column; align-items:center; gap:0.25rem; cursor:pointer; }
+  .likert-btn input { display:none; }
+  .likert-circle { width:44px; height:44px; border-radius:50%; border:2px solid var(--slate-200); background:white; display:flex; align-items:center; justify-content:center; font-size:0.88rem; font-weight:700; color:var(--slate-500); transition:all 0.15s; user-select:none; }
+  .likert-btn:hover .likert-circle { border-color:var(--navy); background:var(--navy-light); color:var(--navy); transform:scale(1.08); }
+  .likert-btn input:checked + .likert-circle { background:var(--navy); border-color:var(--navy); color:white; box-shadow:0 4px 12px rgba(0,0,128,0.3); transform:scale(1.1); }
+  .likert-label { font-size:0.65rem; color:var(--slate-400); font-weight:500; text-align:center; max-width:44px; }
+
+  .submit-area { text-align:center; margin-top:2rem; }
+  .btn-submit { background:linear-gradient(135deg,var(--navy),#0000c8); color:white; border:none; padding:0.9rem 3rem; border-radius:12px; font-family:'Inter',sans-serif; font-size:1rem; font-weight:700; cursor:pointer; transition:all 0.2s; box-shadow:0 4px 16px rgba(0,0,128,0.3); letter-spacing:0.02em; }
+  .btn-submit:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,128,0.35); }
+
+  #success-screen { display:none; text-align:center; background:white; border-radius:20px; padding:3rem 2rem; border:1px solid var(--slate-200); box-shadow:0 4px 20px rgba(0,0,128,0.08); }
+  .success-icon { width:72px; height:72px; background:linear-gradient(135deg,#059669,#10b981); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:2rem; margin:0 auto 1.5rem; box-shadow:0 8px 24px rgba(16,185,129,0.3); }
+
+  .progress-bar-wrap { position:sticky; top:0; z-index:100; background:rgba(248,250,252,0.95); backdrop-filter:blur(8px); padding:0.6rem 0; margin-bottom:1.5rem; }
+  .progress-info { display:flex; justify-content:space-between; font-size:0.78rem; font-weight:600; color:var(--slate-500); margin-bottom:0.4rem; }
+  .progress-track { height:6px; background:var(--slate-200); border-radius:999px; overflow:hidden; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,var(--navy),#4040df); border-radius:999px; transition:width 0.4s ease; width:0%; }
+
+  .required-note { font-size:0.82rem; color:var(--slate-400); text-align:center; margin-bottom:1.25rem; }
+  .required-note span { color:var(--red); }
+
+  @media (max-width:600px) {
+    .info-grid { grid-template-columns:1fr; }
+    .portal-grid { grid-template-columns:1fr; }
+    .likert-circle { width:38px; height:38px; font-size:0.82rem; }
+    .header h1 { font-size:1.3rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="header-badge">Technology Acceptance Model</div>
+    <h1>Kuesioner Uji Penerimaan Pengguna<br/>Portal Inventory Panderman</h1>
+    <p>Sistem Manajemen Inventaris – Portal Lab &amp; Non-Lab</p>
+  </div>
+
+  <div id="form-area">
+    <p class="required-note"><span>*</span> Semua pertanyaan wajib diisi</p>
+
+    <div class="progress-bar-wrap">
+      <div class="progress-info">
+        <span>Progress Pengisian</span>
+        <span id="progress-text">0 / 20 pertanyaan</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+    </div>
+
+    <form id="kuesioner-form" onsubmit="submitForm(event)" novalidate>
+
+      <!-- INFORMASI RESPONDEN -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon pu">🖥️</div>
+          <div>
+            <div class="section-title">Informasi Responden</div>
+            <div class="section-desc">Isi data diri dan pilih portal yang Anda gunakan</div>
+          </div>
+        </div>
+        <div style="padding:1.25rem 1.75rem;">
+          <div class="info-grid" style="margin-bottom:1.25rem;">
+            <div class="field-group">
+              <label for="resp-name">Nama Lengkap</label>
+              <input type="text" id="resp-name" placeholder="Masukkan nama Anda" required />
+            </div>
+            <div class="field-group">
+              <label for="resp-role">Peran / Jabatan</label>
+              <select id="resp-role" required>
+                <option value="">-- Pilih peran --</option>
+                <option>Admin Lab</option>
+                <option>Admin Non-Lab</option>
+                <option>Kepala Lab</option>
+                <option>Guru / Staf Pengajar</option>
+                <option>Petugas Inventaris</option>
+                <option>Lainnya</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style="display:block;font-size:0.85rem;font-weight:600;color:var(--slate-700);margin-bottom:0.6rem;">Portal yang digunakan dalam pengujian ini: <span style="color:var(--red)">*</span></label>
+            <div class="portal-grid">
+              <label class="portal-option" id="opt-lab" onclick="selectPortal('lab')">
+                <input type="radio" name="portal" value="lab" required />
+                <div class="portal-icon lab">🔬</div>
+                <div>
+                  <div class="portal-label">Portal Lab</div>
+                  <div class="portal-sublabel">Manajemen inventaris laboratorium</div>
+                </div>
+              </label>
+              <label class="portal-option" id="opt-nonlab" onclick="selectPortal('nonlab')">
+                <input type="radio" name="portal" value="non-lab" required />
+                <div class="portal-icon nonlab">📦</div>
+                <div>
+                  <div class="portal-label">Portal Non-Lab</div>
+                  <div class="portal-sublabel">Inventaris ruang kelas &amp; kantor</div>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KATEGORI 1: PERCEIVED USEFULNESS -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon pu">⚡</div>
+          <div>
+            <div class="section-title">Kategori 1 — Perceived Usefulness (Persepsi Kegunaan)</div>
+            <div class="section-desc">Seberapa berguna sistem ini dalam mendukung pekerjaan Anda</div>
+          </div>
+        </div>
+        <div class="scale-legend">
+          <div class="scale-chip"><span>1</span> Sangat Tidak Berguna</div>
+          <div class="scale-chip"><span>2</span> Tidak Berguna</div>
+          <div class="scale-chip"><span>3</span> Netral</div>
+          <div class="scale-chip"><span>4</span> Berguna</div>
+          <div class="scale-chip"><span>5</span> Sangat Berguna</div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">1</span>Seberapa berguna sistem Portal Inventory Panderman dalam membantu Anda menemukan fitur atau informasi aset yang Anda cari?</div>
+          <div class="likert-row" id="row-q1"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">2</span>Seberapa efektif sistem ini dalam memudahkan Anda melakukan tugas pencatatan dan pengelolaan inventaris (seperti menambah atau memperbarui data aset)?</div>
+          <div class="likert-row" id="row-q2"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">3</span>Seberapa bermanfaat sistem ini dalam memberikan informasi kondisi dan status aset secara akurat (baik, rusak, dalam perbaikan)?</div>
+          <div class="likert-row" id="row-q3"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">4</span>Seberapa membantu sistem ini dalam menyediakan fitur yang sesuai dengan kebutuhan pengelolaan inventaris di portal Anda?</div>
+          <div class="likert-row" id="row-q4"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">5</span>Seberapa berguna fitur pelaporan masalah (Service Request) dalam membantu Anda melaporkan dan memantau status penanganan kerusakan aset?</div>
+          <div class="likert-row" id="row-q5"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">6</span>Seberapa efektif fitur laporan dan ekspor data dalam memberikan kemudahan akses terhadap rekap inventaris atau riwayat perubahan aset?</div>
+          <div class="likert-row" id="row-q6"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">7</span>Seberapa bermanfaat tampilan dashboard (ringkasan total aset, masalah pending, dan in-progress) dalam memberikan informasi yang akurat dan terkini?</div>
+          <div class="likert-row" id="row-q7"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">8</span>Seberapa membantu sistem ini dalam memudahkan pengelolaan stok barang habis pakai (consumables) beserta peringatan stok rendah?</div>
+          <div class="likert-row" id="row-q8"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">9</span>Seberapa berguna fitur riwayat aktivitas (log) dalam membantu Anda memantau perubahan dan pembaruan data aset secara historis?</div>
+          <div class="likert-row" id="row-q9"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num">10</span>Seberapa efektif sistem ini dalam memberikan informasi terkait kebijakan akses dan hak pengelolaan inventaris yang relevan dengan peran Anda?</div>
+          <div class="likert-row" id="row-q10"></div>
+        </div>
+      </div>
+
+      <!-- KATEGORI 2: PERCEIVED EASE OF USE -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon peou">🧭</div>
+          <div>
+            <div class="section-title">Kategori 2 — Perceived Ease of Use (Persepsi Kemudahan Penggunaan)</div>
+            <div class="section-desc">Seberapa mudah sistem ini digunakan</div>
+          </div>
+        </div>
+        <div class="scale-legend">
+          <div class="scale-chip"><span>1</span> Sangat Sulit</div>
+          <div class="scale-chip"><span>2</span> Sulit</div>
+          <div class="scale-chip"><span>3</span> Netral</div>
+          <div class="scale-chip"><span>4</span> Mudah</div>
+          <div class="scale-chip"><span>5</span> Sangat Mudah</div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">11</span>Seberapa mudah sistem Portal Inventory Panderman untuk dipelajari pertama kali oleh pengguna baru?</div>
+          <div class="likert-row" id="row-q11"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">12</span>Seberapa mudah Anda menemukan menu atau fitur yang Anda cari di dalam sistem ini (misalnya: manajemen ruang, aset, atau laporan)?</div>
+          <div class="likert-row" id="row-q12"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">13</span>Seberapa mudah navigasi antar halaman (misalnya: dari dashboard ke detail ruangan atau ke daftar permintaan layanan) pada sistem ini?</div>
+          <div class="likert-row" id="row-q13"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">14</span>Seberapa mudah menyelesaikan tugas seperti menambah aset baru, mengubah kondisi barang, atau memperbarui data ruangan pada sistem ini?</div>
+          <div class="likert-row" id="row-q14"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">15</span>Seberapa mudah menemukan informasi detail suatu aset (lokasi, kondisi, status, riwayat log) yang Anda butuhkan pada sistem ini?</div>
+          <div class="likert-row" id="row-q15"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">16</span>Seberapa mudah menggunakan fitur pencarian atau filter untuk menemukan aset atau ruangan tertentu pada sistem ini?</div>
+          <div class="likert-row" id="row-q16"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">17</span>Seberapa mudah memahami informasi dan label yang ditampilkan pada sistem ini (seperti badge kondisi aset, status permintaan, atau grafik tren)?</div>
+          <div class="likert-row" id="row-q17"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">18</span>Seberapa mudah memahami alur kerja sistem dari pelaporan masalah (Service Request) hingga penyelesaiannya?</div>
+          <div class="likert-row" id="row-q18"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">19</span>Seberapa mudah melakukan operasi pengelolaan data seperti penambahan, pengeditan, dan penghapusan aset atau ruangan pada sistem ini?</div>
+          <div class="likert-row" id="row-q19"></div>
+        </div>
+        <div class="question-item">
+          <div class="question-text"><span class="question-num green">20</span>Seberapa mudah mengetahui status terkini dari suatu permintaan layanan (Service Request) — apakah masih pending, sedang diproses, atau sudah selesai?</div>
+          <div class="likert-row" id="row-q20"></div>
+        </div>
+      </div>
+
+      <!-- SARAN -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">💬</div>
+          <div>
+            <div class="section-title">Saran &amp; Masukan (Opsional)</div>
+            <div class="section-desc">Tuliskan pendapat atau saran Anda untuk pengembangan sistem</div>
+          </div>
+        </div>
+        <div style="padding:1.25rem 1.75rem;">
+          <textarea id="resp-saran"
+            placeholder="Tuliskan saran, masukan, atau pendapat Anda tentang sistem Portal Inventory Panderman..."
+            style="width:100%;min-height:110px;padding:0.75rem 1rem;border:1.5px solid var(--slate-200);border-radius:12px;font-family:'Inter',sans-serif;font-size:0.9rem;color:var(--slate-800);resize:vertical;outline:none;transition:border-color 0.2s;"
+            onfocus="this.style.borderColor='var(--navy)'"
+            onblur="this.style.borderColor='var(--slate-200)'"></textarea>
+        </div>
+      </div>
+
+      <div class="submit-area">
+        <button type="submit" class="btn-submit">✅ &nbsp;Kirim Kuesioner</button>
+        <p style="font-size:0.78rem;color:var(--slate-400);margin-top:0.75rem;">Data Anda bersifat rahasia dan hanya digunakan untuk keperluan penelitian.</p>
+      </div>
+    </form>
+  </div>
+
+  <div id="success-screen"><!-- filled by JS --></div>
+
+</div>
+<script>
+  const labels = ['Sangat Tidak Setuju','Tidak Setuju','Netral','Setuju','Sangat Setuju'];
+
+  for (let q = 1; q <= 20; q++) {
+    const row = document.getElementById('row-q' + q);
+    if (!row) continue;
+    for (let v = 1; v <= 5; v++) {
+      const lbl = document.createElement('label');
+      lbl.className = 'likert-btn';
+      lbl.title = v + ' – ' + labels[v-1];
+      lbl.innerHTML = `<input type="radio" name="q${q}" value="${v}" required onchange="onAnswer()" /><div class="likert-circle">${v}</div><div class="likert-label">${labels[v-1]}</div>`;
+      row.appendChild(lbl);
+    }
+  }
+
+  function onAnswer() {
+    let answered = 0;
+    for (let q = 1; q <= 20; q++) {
+      if (document.querySelector(`input[name="q${q}"]:checked`)) answered++;
+    }
+    document.getElementById('progress-text').textContent = answered + ' / 20 pertanyaan';
+    document.getElementById('progress-fill').style.width = (answered / 20 * 100) + '%';
+  }
+
+  function selectPortal(type) {
+    document.getElementById('opt-lab').className = 'portal-option' + (type === 'lab' ? ' selected-lab' : '');
+    document.getElementById('opt-nonlab').className = 'portal-option' + (type === 'nonlab' ? ' selected-nonlab' : '');
+  }
+
+  function submitForm(e) {
+    e.preventDefault();
+    const name = document.getElementById('resp-name').value.trim();
+    if (!name) { alert('Harap isi nama lengkap Anda.'); return; }
+    const role = document.getElementById('resp-role').value;
+    if (!role) { alert('Harap pilih peran/jabatan Anda.'); return; }
+    if (!document.querySelector('input[name="portal"]:checked')) { alert('Harap pilih portal yang Anda gunakan.'); return; }
+    for (let q = 1; q <= 20; q++) {
+      if (!document.querySelector(`input[name="q${q}"]:checked`)) {
+        alert(`Harap jawab pertanyaan nomor ${q}.`);
+        document.getElementById('row-q' + q).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
+
+    const results = {
+      nama: name,
+      peran: role,
+      portal: document.querySelector('input[name="portal"]:checked').value,
+      saran: document.getElementById('resp-saran').value,
+      jawaban: {}
+    };
+    for (let q = 1; q <= 20; q++) {
+      results.jawaban['q' + q] = parseInt(document.querySelector(`input[name="q${q}"]:checked`).value);
+    }
+
+    const pu = [1,2,3,4,5,6,7,8,9,10].reduce((s,q) => s + results.jawaban['q'+q], 0) / 10;
+    const peou = [11,12,13,14,15,16,17,18,19,20].reduce((s,q) => s + results.jawaban['q'+q], 0) / 10;
+
+    window._lastResults = results;
+    window._lastPU = pu;
+    window._lastPEOU = peou;
+
+    document.getElementById('form-area').style.display = 'none';
+    const sc = document.getElementById('success-screen');
+    sc.style.display = 'block';
+    sc.innerHTML = `
+      <div class="success-icon">✅</div>
+      <h2 style="font-size:1.5rem;font-weight:800;color:var(--slate-800);margin-bottom:0.5rem;">Terima Kasih, ${name}!</h2>
+      <p style="color:var(--slate-500);margin-bottom:1.5rem;">Respons Anda telah dicatat.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;max-width:320px;margin:0 auto 1.75rem;">
+        <div style="background:var(--navy-light);border-radius:14px;padding:1rem;">
+          <div style="font-size:0.7rem;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:0.25rem;">Kegunaan (PU)</div>
+          <div style="font-size:2rem;font-weight:800;color:var(--navy)">${pu.toFixed(2)}</div>
+          <div style="font-size:0.7rem;color:var(--slate-500)">dari 5.00</div>
+        </div>
+        <div style="background:#d1fae5;border-radius:14px;padding:1rem;">
+          <div style="font-size:0.7rem;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:0.25rem;">Kemudahan (PEOU)</div>
+          <div style="font-size:2rem;font-weight:800;color:#059669">${peou.toFixed(2)}</div>
+          <div style="font-size:0.7rem;color:var(--slate-500)">dari 5.00</div>
+        </div>
+      </div>
+      <p style="color:var(--slate-600);font-size:0.92rem;margin-bottom:1.5rem;">Masukan Anda sangat berharga untuk pengembangan<br/><strong>Portal Inventory Panderman</strong>.</p>
+      <div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:1rem;max-width:400px;margin:0 auto 1.5rem;text-align:left;">
+        <p style="font-size:0.82rem;font-weight:700;color:#92400e;margin-bottom:0.4rem;">📥 Langkah selanjutnya:</p>
+        <p style="font-size:0.82rem;color:#78350f;">Klik tombol <strong>Unduh CSV</strong> di bawah, lalu kirimkan file tersebut ke peneliti.</p>
+      </div>
+      <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap;">
+        <button onclick="downloadCSV()" style="padding:0.8rem 1.75rem;background:linear-gradient(135deg,#059669,#10b981);color:white;border:none;border-radius:10px;font-family:'Inter',sans-serif;font-weight:700;cursor:pointer;font-size:0.92rem;box-shadow:0 4px 12px rgba(16,185,129,0.3);display:inline-flex;align-items:center;gap:0.5rem;">
+          📥 Unduh Hasil (CSV)
+        </button>
+        <button onclick="resetForm()" style="padding:0.8rem 1.75rem;background:white;color:var(--navy);border:2px solid var(--navy);border-radius:10px;font-family:'Inter',sans-serif;font-weight:700;cursor:pointer;font-size:0.92rem;">
+          Isi Ulang
+        </button>
+      </div>
+    `;
+  }
+
+  function downloadCSV() {
+    const r = window._lastResults;
+    if (!r) return;
+    const ts = new Date().toLocaleString('id-ID');
+    const qLabels = [
+      'Menemukan fitur/informasi aset',
+      'Pencatatan dan pengelolaan inventaris',
+      'Informasi kondisi dan status aset',
+      'Fitur sesuai kebutuhan portal',
+      'Fitur pelaporan masalah (Service Request)',
+      'Fitur laporan dan ekspor data',
+      'Tampilan dashboard ringkasan',
+      'Pengelolaan stok barang habis pakai',
+      'Fitur riwayat aktivitas (log)',
+      'Informasi kebijakan akses dan hak pengelolaan',
+      'Kemudahan dipelajari pengguna baru',
+      'Menemukan menu atau fitur',
+      'Navigasi antar halaman',
+      'Menyelesaikan tugas (tambah/ubah aset)',
+      'Menemukan detail suatu aset',
+      'Fitur pencarian/filter aset',
+      'Memahami informasi dan label sistem',
+      'Memahami alur Service Request',
+      'Operasi pengelolaan data',
+      'Mengetahui status Service Request'
+    ];
+    const kategori = [...Array(10).fill('PU'), ...Array(10).fill('PEOU')];
+
+    let csv = '\uFEFF';
+    csv += 'Waktu,Nama,Peran,Portal,Kategori,No,Pertanyaan,Jawaban\n';
+    for (let q = 1; q <= 20; q++) {
+      csv += [
+        `"${ts}"`, `"${r.nama}"`, `"${r.peran}"`, `"${r.portal}"`,
+        kategori[q-1], q, `"${qLabels[q-1]}"`, r.jawaban['q'+q]
+      ].join(',') + '\n';
+    }
+    csv += `\n"${ts}","${r.nama}","${r.peran}","${r.portal}","PU","","Rata-rata Kegunaan",${window._lastPU.toFixed(2)}\n`;
+    csv += `"${ts}","${r.nama}","${r.peran}","${r.portal}","PEOU","","Rata-rata Kemudahan",${window._lastPEOU.toFixed(2)}\n`;
+    if (r.saran) csv += `\n"Saran","${r.saran.replace(/"/g,'""')}"\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `kuesioner_${r.nama.replace(/[^a-zA-Z0-9]/g,'_')}_${Date.now()}.csv`;
+    a.click();
+  }
+
+  function resetForm() {
+    document.getElementById('kuesioner-form').reset();
+    document.getElementById('opt-lab').className = 'portal-option';
+    document.getElementById('opt-nonlab').className = 'portal-option';
+    document.getElementById('progress-text').textContent = '0 / 20 pertanyaan';
+    document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('success-screen').style.display = 'none';
+    document.getElementById('form-area').style.display = 'block';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+</script>
+</body>
+</html>

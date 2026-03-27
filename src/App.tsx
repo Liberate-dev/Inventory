@@ -141,7 +141,7 @@ const App = () => {
                         <Route path="reports" element={<InventoryRoute><FeatureRoute feature="reports"><ReportPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="print-assets" element={<InventoryRoute><FeatureRoute feature="print_assets"><PrintAssetsPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="inventory-codes" element={<InventoryRoute><FeatureRoute feature="print_assets"><Navigate to="/dashboard/print-assets?tab=codes" replace /></FeatureRoute></InventoryRoute>} />
-                        <Route path="items" element={<InventoryRoute><FeatureRoute feature="rooms"><ItemManagementPage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="items" element={<InventoryRoute><FeatureRoute feature="item_management"><ItemManagementPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="operations" element={<InventoryRoute><FeatureRoute feature="operations"><OperationsPage /></FeatureRoute></InventoryRoute>} />
                       </Route>
 

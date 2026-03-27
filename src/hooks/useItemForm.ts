@@ -16,8 +16,10 @@ interface ItemFormData {
     quantity: number | '';
     unit: string;
     minStock: number | '';
+    source: string;
     parameters: { label: string; value: string }[];
     condition: ComponentCondition;
+    imageUrl: string;
 }
 
 export const useItemForm = (initialItem?: Item | null) => {
@@ -33,8 +35,10 @@ export const useItemForm = (initialItem?: Item | null) => {
         quantity: '',
         unit: 'Pcs',
         minStock: '',
+        source: '',
         parameters: [],
-        condition: 'good'
+        condition: 'good',
+        imageUrl: ''
     };
 
     const [formData, setFormData] = useState<ItemFormData>(defaultState);
@@ -56,8 +60,10 @@ export const useItemForm = (initialItem?: Item | null) => {
             quantity: item.quantity || 1,
             unit: item.unit || 'Pcs',
             minStock: item.minStock || 0,
+            source: item.source || '',
             parameters: item.parameters || [],
-            condition: item.condition || 'good'
+            condition: item.condition || 'good',
+            imageUrl: item.imageUrl || item.image_layer || ''
         });
         setIsEditing(true);
         setEditingId(item.id);

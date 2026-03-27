@@ -4,7 +4,6 @@ import { useInventory } from '../context/InventoryContext';
 import { useLanguage } from '../context/LanguageContext';
 import { CheckCircle, ChevronDown, ChevronUp, Clock, Download, History, Search, XCircle } from 'lucide-react';
 import type { RequestStatus, ServiceRequest, Container } from '../types';
-import StationDetailModal from '../components/inventory/StationDetailModal';
 import ContainerDetailModal from '../components/inventory/ContainerDetailModal';
 import { AnimatePresence } from 'framer-motion';
 import jsPDF from 'jspdf';
@@ -114,7 +113,6 @@ const ServiceRequests = () => {
     // Modal State
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
     const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
-    const [modalType, setModalType] = useState<'station' | 'container' | null>(null);
     const [initialSelection, setInitialSelection] = useState<string | undefined>(undefined);
 
     const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
@@ -146,30 +144,7 @@ const ServiceRequests = () => {
         if (container) {
             setSelectedRoomId(room.id);
             setSelectedContainer(container);
-
-            if (container.type === 'table' && room.type === 'computer') {
-                setModalType('station');
-                // Map componentId to Station Component Key ('monitor', 'pc', etc.)
-                // We find the item in the container to check its type
-                const item = container.items?.find(i => i.id === req.componentId);
-                if (item) {
-                    const type = (item.type || item.category || '').toLowerCase();
-                    let key = '';
-                    if (['monitor', 'screen', 'display'].some(t => type.includes(t))) key = 'monitor';
-                    else if (['keyboard', 'keypad'].some(t => type.includes(t))) key = 'keyboard';
-                    else if (['mouse', 'trackpad'].some(t => type.includes(t))) key = 'mouse';
-                    else if (['pc', 'computer', 'desktop', 'tower', 'pc unit'].some(t => type.includes(t))) key = 'pc';
-                    else if (['desk', 'table', 'physical desk', 'workstation'].some(t => type.includes(t))) key = 'desk';
-
-                    setInitialSelection(key || undefined);
-                } else {
-                    setInitialSelection(undefined);
-                }
-            } else {
-                setModalType('container');
-                // For regular containers, we pass the Item ID directly
-                setInitialSelection(req.componentId);
-            }
+            setInitialSelection(req.componentId);
         }
     };
 
@@ -855,26 +830,15 @@ const ServiceRequests = () => {
             {/* Detail Modals */}
             <AnimatePresence>
                 {selectedContainer && (
-                    modalType === 'station' ? (
-                        <StationDetailModal
-                            key="station-modal"
-                            station={selectedContainer}
-                            roomId={selectedRoomId ?? undefined}
-                            initialSelectedComponent={initialSelection}
-                            onClose={() => { setSelectedContainer(null); setSelectedRoomId(null); setInitialSelection(undefined); }}
-                            onUpdate={(container) => { void handleUpdateContainer(container); }}
-                        />
-                    ) : (
-                        <ContainerDetailModal
-                            key="container-modal"
-                            container={selectedContainer}
-                            roomId={selectedRoomId ?? undefined}
-                            roomName={selectedRoomId ? (getRoom(selectedRoomId)?.name ?? undefined) : undefined}
-                            initialItemId={initialSelection}
-                            onClose={() => { setSelectedContainer(null); setSelectedRoomId(null); setInitialSelection(undefined); }}
-                            onUpdate={(container) => { void handleUpdateContainer(container); }}
-                        />
-                    )
+                    <ContainerDetailModal
+                        key="container-modal"
+                        container={selectedContainer}
+                        roomId={selectedRoomId ?? undefined}
+                        roomName={selectedRoomId ? (getRoom(selectedRoomId)?.name ?? undefined) : undefined}
+                        initialItemId={initialSelection}
+                        onClose={() => { setSelectedContainer(null); setSelectedRoomId(null); setInitialSelection(undefined); }}
+                        onUpdate={(container) => { void handleUpdateContainer(container); }}
+                    />
                 )}
             </AnimatePresence>
         </div>

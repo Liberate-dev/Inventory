@@ -23,6 +23,7 @@ if ($method === 'GET') {
         $stmt = $db->prepare('
             SELECT 
                 i.*, 
+                i.source,
                 c.name as container_name,
                 r.name as room_name,
                 r.id as room_id,

@@ -39,7 +39,7 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
             }
             setItems(data.items || []);
         } catch (err) {
-            setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
+            setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Terjadi kesalahan tidak diketahui' });
         } finally {
             setLoading(false);
         }

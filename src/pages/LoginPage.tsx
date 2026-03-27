@@ -24,7 +24,7 @@ const LoginPage = () => {
         if (result.success) {
             navigate(result.redirectPath || '/');
         } else {
-            setError(result.error || 'Login failed');
+            setError(result.error || 'Login gagal');
             setIsLoading(false);
         }
     };
@@ -64,7 +64,7 @@ const LoginPage = () => {
 
                         <div className="space-y-2">
                             <label htmlFor="identifier" className="text-slate-700 text-sm font-semibold ml-1 block">
-                                Username / Email
+                                Nama Pengguna / Email
                             </label>
                             <input
                                 id="identifier"
@@ -79,7 +79,7 @@ const LoginPage = () => {
 
                         <div className="space-y-2">
                             <label htmlFor="password" className="text-slate-700 text-sm font-semibold ml-1 block">
-                                Password
+                                Kata Sandi
                             </label>
                             <div className="relative">
                                 <input

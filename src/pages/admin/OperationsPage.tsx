@@ -40,12 +40,14 @@ const formatLocationLabel = (value: unknown): string => {
     return cleaned === '' ? '-' : cleaned;
 };
 
+
+
 export default function OperationsPage() {
     const { user } = useAuth();
     const { rooms, updateRoom } = useInventory();
     const [activeTab, setActiveTab] = useState<'transfer' | 'usage'>('transfer');
 
-    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all');
+    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all' && user?.labScope !== 'non-lab');
 
     // Filter rooms based on scope for dropdowns
     const scopedRooms = isScopeRestricted
@@ -64,6 +66,16 @@ export default function OperationsPage() {
     const [pendingAction, setPendingAction] = useState<'transfer' | 'usage' | null>(null);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
+    // --- Transfer Logic (state must be defined before filteredItems) ---
+    const [transferForm, setTransferForm] = useState({
+        targetRoomId: '',
+        targetContainerId: '',
+        personResponsible: '',
+        receiver: '', // New PIC
+        date: new Date().toISOString().split('T')[0],
+        conditionBefore: 'good' as ComponentCondition
+    });
+
     // Filter Logic for Modal using scopedRooms
     const allItems: { item: Item; room: Room; container: Container }[] = [];
     scopedRooms.forEach(room => {
@@ -74,10 +86,14 @@ export default function OperationsPage() {
         });
     });
 
-    const filteredItems = allItems.filter(({ item }) =>
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredItems = allItems.filter(({ item, room }) => {
+        // Bug fix: exclude items already in the target room (prevent self-transfer)
+        if (activeTab === 'transfer' && transferForm.targetRoomId && room.id === transferForm.targetRoomId) return false;
+        return (
+            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.id.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    });
 
     const toggleItemSelection = (id: string) => {
         setSelectedItemIds(prev =>
@@ -87,26 +103,17 @@ export default function OperationsPage() {
 
     const selectedItemsData = allItems.filter(i => selectedItemIds.includes(i.item.id));
 
-    // --- Transfer Logic ---
-    const [transferForm, setTransferForm] = useState({
-        targetRoomId: '',
-        targetContainerId: '',
-        personResponsible: '',
-        receiver: '', // New PIC
-        date: new Date().toISOString().split('T')[0],
-        conditionBefore: 'good' as ComponentCondition
-    });
 
     const initiateTransfer = (e: React.FormEvent) => {
         e.preventDefault();
 
         if (selectedItemIds.length === 0) {
-            alert("Please select at least one item.");
+            alert("Pilih minimal satu item terlebih dahulu.");
             return;
         }
 
         if (!transferForm.targetRoomId || !transferForm.targetContainerId) {
-            alert("Please select a valid destination.");
+            alert("Pilih tujuan yang valid terlebih dahulu.");
             return;
         }
 
@@ -224,13 +231,13 @@ export default function OperationsPage() {
                 if (!roomState) continue;
                 await updateRoom(roomState);
             }
-            setShowSuccess(`Successfully moved ${selectedItemIds.length} items to ${targetRoom.name}`);
+            setShowSuccess(`Berhasil memindahkan ${selectedItemIds.length} item ke ${targetRoom.name}`);
             setTimeout(() => setShowSuccess(null), 3000);
             setSelectedItemIds([]);
             setSearchTerm('');
         } catch (error) {
             console.error('Failed to persist transfer:', error);
-            alert(error instanceof Error ? error.message : 'Failed to save transfer into backend.');
+            alert(error instanceof Error ? error.message : 'Gagal menyimpan transfer ke server.');
         }
     };
 
@@ -263,7 +270,7 @@ export default function OperationsPage() {
             });
 
             if (overdrawnItems.length > 0) {
-                alert(`Insufficient stock for:\n${overdrawnItems.map(i => i.item.name).join(', ')}`);
+                alert(`Stok tidak mencukupi untuk:\n${overdrawnItems.map(i => i.item.name).join(', ')}`);
                 return;
             }
         }
@@ -276,7 +283,7 @@ export default function OperationsPage() {
         });
 
         if (invalidItems.length > 0) {
-            alert(`Some items cannot be processed:\n${invalidItems.map(i => i.item.name).join(', ')}\n\nCheck their current status.`);
+            alert(`Beberapa item tidak dapat diproses:\n${invalidItems.map(i => i.item.name).join(', ')}\n\nPeriksa status item tersebut.`);
             return;
         }
 
@@ -365,13 +372,13 @@ export default function OperationsPage() {
                 if (!roomState) continue;
                 await updateRoom(roomState);
             }
-            setShowSuccess(`Successfully ${usageForm.actionType === 'checkout' ? 'checked out' : 'returned'} ${selectedItemIds.length} items`);
+            setShowSuccess(`Berhasil ${usageForm.actionType === 'checkout' ? 'meminjamkan' : 'mengembalikan'} ${selectedItemIds.length} item`);
             setTimeout(() => setShowSuccess(null), 3000);
             setSelectedItemIds([]);
             setSearchTerm('');
         } catch (error) {
             console.error('Failed to persist usage operation:', error);
-            alert(error instanceof Error ? error.message : 'Failed to save usage operation into backend.');
+            alert(error instanceof Error ? error.message : 'Gagal menyimpan operasi penggunaan ke server.');
         }
     };
 
@@ -519,7 +526,7 @@ export default function OperationsPage() {
                 <div className="fixed top-24 right-8 bg-emerald-500 text-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-right z-50">
                     <CheckCircle className="h-6 w-6" />
                     <div>
-                        <p className="font-bold">Success</p>
+                        <p className="font-bold">Berhasil</p>
                         <p className="text-emerald-100 text-sm">{showSuccess}</p>
                     </div>
                 </div>
@@ -560,7 +567,7 @@ export default function OperationsPage() {
                                 className={`flex-1 py-4 text-sm font-bold transition-all relative ${activeTab === 'transfer' ? 'text-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                             >
                                 <div className="flex items-center justify-center gap-2">
-                                    <ArrowRightLeft size={18} /> Transfer Asset
+                                    <ArrowRightLeft size={18} /> Transfer Aset
                                 </div>
                                 {activeTab === 'transfer' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
                             </button>
@@ -569,7 +576,7 @@ export default function OperationsPage() {
                                 className={`flex-1 py-4 text-sm font-bold transition-all relative ${activeTab === 'usage' ? 'text-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                             >
                                 <div className="flex items-center justify-center gap-2">
-                                    <ClipboardList size={18} /> Record Usage
+                                    <ClipboardList size={18} /> Catat Penggunaan
                                 </div>
                                 {activeTab === 'usage' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
                             </button>
@@ -581,7 +588,7 @@ export default function OperationsPage() {
                                     {/* logistics */}
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Date</label>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tanggal</label>
                                             <div className="relative">
                                                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                                 <input
@@ -594,7 +601,7 @@ export default function OperationsPage() {
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mover</label>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pemindah</label>
                                             <div className="relative">
                                                 <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                                 <input
@@ -603,7 +610,7 @@ export default function OperationsPage() {
                                                     value={transferForm.personResponsible}
                                                     onChange={(e) => setTransferForm({ ...transferForm, personResponsible: e.target.value })}
                                                     className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
-                                                    placeholder="Person Responsible"
+                                                    placeholder="Nama Penanggung Jawab"
                                                 />
                                             </div>
                                         </div>
@@ -612,44 +619,44 @@ export default function OperationsPage() {
                                     {/* Destination */}
                                     <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-4">
                                         <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
-                                            <ArrowRightLeft size={16} /> Destination Details
+                                            <ArrowRightLeft size={16} /> Detail Tujuan
                                         </h4>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
-                                                <label className="text-xs font-semibold text-indigo-700">Target Room</label>
+                                                <label className="text-xs font-semibold text-indigo-700">Ruangan Tujuan</label>
                                                 <select
                                                     required
                                                     value={transferForm.targetRoomId}
                                                     onChange={(e) => setTransferForm({ ...transferForm, targetRoomId: e.target.value, targetContainerId: '' })}
                                                     className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                                                 >
-                                                    <option value="">Select Room</option>
+                                                    <option value="">Pilih Ruangan</option>
                                                     {scopedRooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                                                 </select>
                                             </div>
                                             <div className="space-y-1.5">
-                                                <label className="text-xs font-semibold text-indigo-700">Container (Opt)</label>
+                                                <label className="text-xs font-semibold text-indigo-700">Kontainer (Opsional)</label>
                                                 <select
                                                     disabled={!transferForm.targetRoomId}
                                                     value={transferForm.targetContainerId}
                                                     onChange={(e) => setTransferForm({ ...transferForm, targetContainerId: e.target.value })}
                                                     className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50 text-sm"
                                                 >
-                                                    <option value="">Select Container</option>
+                                                    <option value="">Pilih Kontainer</option>
                                                     {scopedRooms.find(r => r.id === transferForm.targetRoomId)?.containers.map(c => (
                                                         <option key={c.id} value={c.id}>{c.name}</option>
                                                     ))}
                                                 </select>
                                             </div>
                                             <div className="col-span-2 space-y-1.5">
-                                                <label className="text-xs font-semibold text-indigo-700">Receiver / New PIC</label>
+                                                <label className="text-xs font-semibold text-indigo-700">Penerima / PIC Baru</label>
                                                 <input
                                                     type="text"
                                                     required
                                                     value={transferForm.receiver}
                                                     onChange={(e) => setTransferForm({ ...transferForm, receiver: e.target.value })}
                                                     className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                                    placeholder="Who is receiving this?"
+                                                    placeholder="Nama penerima barang"
                                                 />
                                             </div>
                                         </div>
@@ -658,7 +665,7 @@ export default function OperationsPage() {
                                     {/* Condition & Items */}
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-end border-b border-slate-100 pb-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Assets to Transfer</label>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Aset yang Dipindahkan</label>
                                             {selectedItemIds.length > 0 && (
                                                 <button
                                                     type="button"
@@ -688,7 +695,7 @@ export default function OperationsPage() {
                                                 </div>
                                                 <div className="flex items-center gap-4 pt-2">
                                                     <div className="flex-1 space-y-1">
-                                                        <label className="text-xs font-semibold text-slate-500">Condition Check (Before Transfer)</label>
+                                                        <label className="text-xs font-semibold text-slate-500">Cek Kondisi (Sebelum Transfer)</label>
                                                         <select
                                                             value={transferForm.conditionBefore}
                                                             onChange={(e) => setTransferForm({ ...transferForm, conditionBefore: e.target.value as ComponentCondition })}
@@ -710,7 +717,7 @@ export default function OperationsPage() {
                                                 <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-indigo-100/50 flex items-center justify-center transition-colors">
                                                     <Plus size={20} />
                                                 </div>
-                                                <span className="font-medium text-sm">Select Items to Transfer</span>
+                                                <span className="font-medium text-sm">Pilih Item yang Dipindahkan</span>
                                             </button>
                                         )}
                                     </div>
@@ -721,7 +728,7 @@ export default function OperationsPage() {
                                         className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 mt-4"
                                     >
                                         <ArrowRightLeft size={20} />
-                                        {selectedItemIds.length > 0 ? `Transfer ${selectedItemIds.length} Assets` : 'Select Assets First'}
+                                        {selectedItemIds.length > 0 ? `Transfer ${selectedItemIds.length} Aset` : 'Pilih Aset Terlebih Dahulu'}
                                     </button>
                                 </form>
                             ) : (
@@ -733,20 +740,20 @@ export default function OperationsPage() {
                                                 checked={usageForm.actionType === 'checkout'}
                                                 onChange={() => setUsageForm({ ...usageForm, actionType: 'checkout' })}
                                             />
-                                            Check Out
+                                            Pinjam
                                         </label>
                                         <label className={`flex-1 text-center py-2.5 rounded-lg cursor-pointer font-bold text-sm transition-all ${usageForm.actionType === 'checkin' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                                             <input type="radio" name="action" className="hidden"
                                                 checked={usageForm.actionType === 'checkin'}
                                                 onChange={() => setUsageForm({ ...usageForm, actionType: 'checkin' })}
                                             />
-                                            Return
+                                            Kembali
                                         </label>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Date</label>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tanggal</label>
                                             <div className="relative">
                                                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                                 <input
@@ -759,7 +766,7 @@ export default function OperationsPage() {
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Borrower</label>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Peminjam</label>
                                             <div className="relative">
                                                 <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                                 <input
@@ -768,7 +775,7 @@ export default function OperationsPage() {
                                                     value={usageForm.borrower}
                                                     onChange={(e) => setUsageForm({ ...usageForm, borrower: e.target.value })}
                                                     className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
-                                                    placeholder="Name / Class"
+                                                    placeholder="Nama / Kelas"
                                                 />
                                             </div>
                                         </div>
@@ -788,7 +795,7 @@ export default function OperationsPage() {
                                     {/* Assets Section */}
                                     <div className="space-y-4 pt-2">
                                         <div className="flex justify-between items-end border-b border-slate-100 pb-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Affected Assets</label>
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Aset yang Terdampak</label>
                                             {selectedItemIds.length > 0 && (
                                                 <button
                                                     type="button"
@@ -808,7 +815,7 @@ export default function OperationsPage() {
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-sm text-slate-700 font-medium">{item.name}</span>
                                                                 {item.isConsumable && (
-                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">Consumable</span>
+                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">Habis Pakai</span>
                                                                 )}
                                                             </div>
                                                             <div className="flex items-center gap-4">
@@ -843,7 +850,7 @@ export default function OperationsPage() {
                                                 {usageForm.actionType === 'checkin' && (
                                                     <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-2 animate-in fade-in">
                                                         <label className="text-sm font-bold text-emerald-800 flex items-center gap-2">
-                                                            <AlertCircle size={16} /> Return Condition Check
+                                                            <AlertCircle size={16} /> Cek Kondisi Saat Kembali
                                                         </label>
                                                         <select
                                                             value={usageForm.conditionCheck}
@@ -866,7 +873,7 @@ export default function OperationsPage() {
                                                 <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-indigo-100/50 flex items-center justify-center transition-colors">
                                                     <Plus size={20} />
                                                 </div>
-                                                <span className="font-medium text-sm">Select Assets to {usageForm.actionType === 'checkout' ? 'Check Out' : 'Return'}</span>
+                                                <span className="font-medium text-sm">Pilih Aset untuk {usageForm.actionType === 'checkout' ? 'Dipinjam' : 'Dikembalikan'}</span>
                                             </button>
                                         )}
                                     </div>
@@ -877,7 +884,7 @@ export default function OperationsPage() {
                                         className={`w-full py-4 text-white rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2 ${usageForm.actionType === 'checkout' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'} disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed`}
                                     >
                                         <ClipboardList size={20} />
-                                        {selectedItemIds.length > 0 ? (usageForm.actionType === 'checkout' ? `Check Out ${selectedItemIds.length} Items` : `Return ${selectedItemIds.length} Items`) : 'Select Assets First'}
+                                        {selectedItemIds.length > 0 ? (usageForm.actionType === 'checkout' ? `Pinjam ${selectedItemIds.length} Item` : `Kembalikan ${selectedItemIds.length} Item`) : 'Pilih Aset Terlebih Dahulu'}
                                     </button>
                                 </form>
                             )}
@@ -889,7 +896,7 @@ export default function OperationsPage() {
                 <div className="lg:col-span-1 space-y-6">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sticky top-6">
                         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            <ClipboardList size={18} className="text-indigo-500" /> Recent Activity
+                            <ClipboardList size={18} className="text-indigo-500" /> Aktivitas Terkini
                         </h3>
 
                         {/* Tracker for Active Loans */}
@@ -901,9 +908,15 @@ export default function OperationsPage() {
 
                         <PendingVerifications />
 
-                        <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-center">
-                            <Clock size={32} className="mx-auto text-slate-300 mb-3" />
-                            <p className="text-sm text-slate-500 font-medium">Buka <b className="text-slate-700">Riwayat Operasional</b> untuk melihat detail histori dan filter data secara lengkap.</p>
+                        <RecentActivityFeed />
+
+                        <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+                            <button
+                                onClick={() => setIsHistoryOpen(true)}
+                                className="text-sm text-indigo-600 font-bold hover:text-indigo-700 flex items-center justify-center gap-2 w-full"
+                            >
+                                <History size={16} /> Lihat Semua Riwayat Operasional
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -914,7 +927,7 @@ export default function OperationsPage() {
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                            <h3 className="text-lg font-bold text-gray-800">Select Items</h3>
+                            <h3 className="text-lg font-bold text-gray-800">Pilih Item</h3>
                             <button onClick={() => setIsSelectionModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-colors">
                                 <X size={20} />
                             </button>
@@ -925,7 +938,7 @@ export default function OperationsPage() {
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                                 <input
                                     type="text"
-                                    placeholder="Search by name, ID, or room..."
+                                    placeholder="Cari berdasarkan nama, ID, atau ruangan..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
@@ -971,20 +984,20 @@ export default function OperationsPage() {
                             ) : (
                                 <div className="text-center py-12 text-gray-400">
                                     <Search size={48} className="mx-auto mb-2 opacity-20" />
-                                    <p>No items found matching "{searchTerm}"</p>
+                                    <p>Tidak ada item yang cocok dengan "{searchTerm}"</p>
                                 </div>
                             )}
                         </div>
 
                         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
                             <span className="text-sm font-medium text-gray-500">
-                                {selectedItemIds.length} items selected
+                                {selectedItemIds.length} item dipilih
                             </span>
                             <button
                                 onClick={() => setIsSelectionModalOpen(false)}
                                 className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-lg shadow-indigo-200 hover:bg-indigo-500 transition-all active:scale-95"
                             >
-                                Done
+                                Selesai
                             </button>
                         </div>
                     </div>
@@ -1035,20 +1048,20 @@ function ActiveLoans({ onReturn }: { onReturn: (itemId: string) => void }) {
     return (
         <div className="mb-8 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
             <h3 className="font-bold text-indigo-800 mb-2 flex items-center gap-2">
-                <Clock size={18} /> Currently In Use
+                <Clock size={18} /> Sedang Digunakan
             </h3>
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                 {activeItems.map(({ item, roomName }) => (
                     <div key={item.id} className="bg-white p-3 rounded-lg border border-indigo-100 flex justify-between items-center shadow-sm">
                         <div className="overflow-hidden">
                             <div className="font-bold text-slate-700 text-sm truncate">{item.name}</div>
-                            <div className="text-xs text-slate-500 truncate">From: {roomName}</div>
+                            <div className="text-xs text-slate-500 truncate">Dari: {roomName}</div>
                         </div>
                         <button
                             onClick={() => onReturn(item.id)}
                             className="shrink-0 px-3 py-1.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-200 transition-colors flex items-center gap-1"
                         >
-                            Return <ArrowRight size={12} />
+                            Kembalikan <ArrowRight size={12} />
                         </button>
                     </div>
                 ))}
@@ -1127,7 +1140,7 @@ function PendingVerifications() {
     return (
         <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
             <h3 className="font-bold text-amber-800 mb-2 flex items-center gap-2">
-                <AlertCircle size={18} /> Pending Confirmations
+                <AlertCircle size={18} /> Menunggu Konfirmasi
             </h3>
             <div className="space-y-2">
                 {pendingLogs.map((entry) => (
@@ -1135,14 +1148,14 @@ function PendingVerifications() {
                         <div>
                             <div className="font-bold text-slate-700 text-sm">{entry.itemName}</div>
                             <div className="text-xs text-slate-500">
-                                To: {formatLocationLabel(parseLogDetails(entry.log.details).to)}
+                                Ke: {formatLocationLabel(parseLogDetails(entry.log.details).to)}
                             </div>
                         </div>
                         <button
                             onClick={() => setVerifyingLog(entry)}
                             className="px-3 py-1.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-200 transition-colors"
                         >
-                            Verify
+                            Konfirmasi
                         </button>
                     </div>
                 ))}
@@ -1152,19 +1165,76 @@ function PendingVerifications() {
             {verifyingLog && (
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
                     <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm animate-in zoom-in-95">
-                        <h3 className="font-bold text-lg mb-4">Confirm Item Condition</h3>
+                        <h3 className="font-bold text-lg mb-4">Konfirmasi Kondisi Barang</h3>
                         <p className="text-sm text-slate-500 mb-6">
-                            How is the condition of <b>{verifyingLog.itemName}</b> after arrival?
+                            Bagaimana kondisi <b>{verifyingLog.itemName}</b> setelah tiba?
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                             <button onClick={() => { void handleConfirm('good'); }} className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100">Baik</button>
                             <button onClick={() => { void handleConfirm('service'); }} className="p-3 bg-amber-50 border border-amber-200 text-amber-700 font-bold rounded-xl hover:bg-amber-100">Service</button>
                             <button onClick={() => { void handleConfirm('damaged'); }} className="p-3 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-xl hover:bg-rose-100">Rusak</button>
                         </div>
-                        <button onClick={() => setVerifyingLog(null)} className="w-full mt-4 py-2 text-slate-400 font-bold text-sm hover:text-slate-600">Cancel</button>
+                        <button onClick={() => setVerifyingLog(null)} className="w-full mt-4 py-2 text-slate-400 font-bold text-sm hover:text-slate-600">Batal</button>
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// ---------------------------------------------------------
+// Recent Activity Feed Component
+// ---------------------------------------------------------
+function RecentActivityFeed() {
+    const { recentLogs, rooms } = useInventory();
+    const { user } = useAuth();
+
+    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all' && user?.labScope !== 'non-lab');
+    const scopedRooms = isScopeRestricted
+        ? rooms.filter(r => r.type === user?.labScope)
+        : rooms;
+
+    const allowedRoomIds = new Set(scopedRooms.map(r => r.id));
+    const operationalActions = new Set(['TRANSFER', 'CHECK_OUT', 'RETURNED']);
+
+    const scopedRecentLogs = isScopeRestricted
+        ? recentLogs.filter(entry => allowedRoomIds.has(entry.roomId))
+        : recentLogs;
+    
+    const operationalLogs = scopedRecentLogs.filter((entry) => operationalActions.has(entry.log.action));
+    const topLogs = operationalLogs.slice(0, 5); // Pick top 5 most recent
+
+    if (topLogs.length === 0) return null;
+
+    return (
+        <div className="space-y-3 mt-4">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest pl-1 mb-2">Riwayat Terbaru</h4>
+            {topLogs.map((entry, idx) => {
+                const details = parseLogDetails(entry.log.details);
+                return (
+                    <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 flex items-start gap-3 shadow-sm hover:border-indigo-100 transition-colors">
+                        <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${entry.log.action === 'TRANSFER' ? 'bg-amber-400' :
+                            entry.log.action === 'CHECK_OUT' ? 'bg-indigo-400' :
+                                entry.log.action === 'RETURNED' ? 'bg-emerald-400' : 'bg-slate-300'
+                            }`} />
+                        <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold text-slate-700 truncate">{entry.itemName}</div>
+                            <div className="text-[10px] uppercase font-bold text-indigo-600 mb-0.5 mt-0.5 bg-indigo-50 inline-block px-1.5 py-0.5 rounded">
+                                {entry.log.action.replace('_', ' ')}
+                            </div>
+                            <div className="text-xs text-slate-500 line-clamp-2 mt-1">
+                                {entry.log.action === 'TRANSFER' && `Dari ${formatLocationLabel(details.from)} ke ${formatLocationLabel(details.to)}`}
+                                {entry.log.action === 'CHECK_OUT' && `Peminjam: ${details.borrower ? String(details.borrower) : '-'} \u2014 ${details.purpose ? String(details.purpose) : '-'}`}
+                                {entry.log.action === 'RETURNED' && `Dikembalikan: ${details.returner ? String(details.returner) : '-'} (Kondisi: ${details.condition ? String(details.condition) : '-'})`}
+                            </div>
+                            <div className="text-[10px] font-medium text-slate-400 mt-1.5 flex items-center gap-1">
+                                <Clock size={10} />
+                                {new Date(entry.log.date).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
         </div>
     );
 }
@@ -1176,10 +1246,11 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     const { recentLogs, rooms } = useInventory();
     const { user } = useAuth();
 
-    // Create scopedRooms for logs just like the main page
-    const scopedRooms = user?.labScope === 'all' || !user?.labScope
-        ? rooms
-        : rooms.filter(r => r.type === user?.labScope);
+    // Mirror the same scope restriction logic as the main component
+    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all' && user?.labScope !== 'non-lab');
+    const scopedRooms = isScopeRestricted
+        ? rooms.filter(r => r.type === user?.labScope)
+        : rooms;
 
     const allowedRoomIds = new Set(scopedRooms.map(r => r.id));
 
@@ -1188,8 +1259,10 @@ function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     const [selectedLog, setSelectedLog] = useState<{ entry: (typeof recentLogs)[0]; details: Record<string, unknown> } | null>(null);
     const operationalActions = new Set(['TRANSFER', 'CHECK_OUT', 'RETURNED']);
 
-    // Only show logs for rooms the user is allowed to see
-    const scopedRecentLogs = recentLogs.filter(entry => allowedRoomIds.has(entry.roomId));
+    // Only apply room filter when scope-restricted; otherwise recentLogs is already scoped by portalType
+    const scopedRecentLogs = isScopeRestricted
+        ? recentLogs.filter(entry => allowedRoomIds.has(entry.roomId))
+        : recentLogs;
     const operationalLogs = scopedRecentLogs.filter((entry) => operationalActions.has(entry.log.action));
 
     const filteredLogs = operationalLogs.filter(entry => {

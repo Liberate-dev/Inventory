@@ -9,8 +9,8 @@ $database = new Database();
 $db = $database->getConnection();
 
 if (!$db) {
-    http_response_code(500);
-    echo json_encode(["success" => false, "message" => "Database connection failed."]);
+    http_response_code(503);
+    echo json_encode(["success" => false, "message" => "Gagal terhubung ke database. Pastikan MySQL sudah menyala."]);
     exit;
 }
 

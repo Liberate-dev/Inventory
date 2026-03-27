@@ -101,20 +101,21 @@ function authBearerToken(): ?string
 function authDefaultPermissionMatrix(): array
 {
     return [
-        'dashboard' => ['admin' => 'full', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'full', 'sarpras' => 'full'],
-        'rooms' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'view', 'sarpras' => 'view'],
-        'service_requests' => ['admin' => 'none', 'kepala_lab' => 'view', 'guru' => 'view', 'kepala_sekolah' => 'view', 'sarpras' => 'full'],
-        'operations' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'none', 'sarpras' => 'none'],
-        'reports' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'none', 'kepala_sekolah' => 'full', 'sarpras' => 'full'],
-        'print_assets' => ['admin' => 'none', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'view', 'sarpras' => 'full'],
-        'user_management' => ['admin' => 'full', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'none', 'sarpras' => 'none'],
-        'system_logs' => ['admin' => 'full', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'none', 'sarpras' => 'none'],
+        'dashboard' => ['admin' => 'full', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'full', 'sarpras' => 'full', 'admin_nl' => 'full'],
+        'rooms' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'view', 'sarpras' => 'view', 'admin_nl' => 'full'],
+        'item_management' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'view', 'sarpras' => 'view', 'admin_nl' => 'full'],
+        'service_requests' => ['admin' => 'none', 'kepala_lab' => 'view', 'guru' => 'view', 'kepala_sekolah' => 'view', 'sarpras' => 'full', 'admin_nl' => 'view'],
+        'operations' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'full', 'kepala_sekolah' => 'none', 'sarpras' => 'none', 'admin_nl' => 'full'],
+        'reports' => ['admin' => 'none', 'kepala_lab' => 'full', 'guru' => 'none', 'kepala_sekolah' => 'full', 'sarpras' => 'full', 'admin_nl' => 'full'],
+        'print_assets' => ['admin' => 'none', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'view', 'sarpras' => 'full', 'admin_nl' => 'none'],
+        'user_management' => ['admin' => 'full', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'none', 'sarpras' => 'none', 'admin_nl' => 'none'],
+        'system_logs' => ['admin' => 'full', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'none', 'sarpras' => 'none', 'admin_nl' => 'none'],
     ];
 }
 
 function authRoleKeys(): array
 {
-    return ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras'];
+    return ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras', 'admin_nl'];
 }
 
 function authFeatureKeys(): array
@@ -404,13 +405,18 @@ function authIsScopeRestricted(array $user): bool
     return true;
 }
 
-function authCanAccessRoomType(array $user, ?string $roomType): bool
+function authCanAccessRoomType(array $user, ?string $roomType, ?string $roomCategory = null): bool
 {
     if (!authIsScopeRestricted($user)) {
         return true;
     }
 
     $labScope = (string) ($user['lab_scope'] ?? '');
+    
+    if ($labScope === 'non-lab') {
+        return $roomCategory !== null && $roomCategory === 'non-lab';
+    }
+
     return $roomType !== null && $roomType === $labScope;
 }
 
@@ -425,7 +431,7 @@ function authAssertRoomScope(PDO $db, array $user, int $roomId): array
         authRespond(404, ['status' => 'error', 'message' => 'Room not found.']);
     }
 
-    if (!authCanAccessRoomType($user, isset($room['type']) ? (string) $room['type'] : null)) {
+    if (!authCanAccessRoomType($user, isset($room['type']) ? (string) $room['type'] : null, isset($room['category']) ? (string) $room['category'] : null)) {
         authRespond(403, ['status' => 'error', 'message' => 'Room access denied for current scope.']);
     }
 
@@ -434,7 +440,7 @@ function authAssertRoomScope(PDO $db, array $user, int $roomId): array
 
 function authAssertContainerScope(PDO $db, array $user, int $containerId, ?int $roomId = null): array
 {
-    $query = "SELECT c.id, c.room_id, r.type
+    $query = "SELECT c.id, c.room_id, r.type, r.category
               FROM containers c
               INNER JOIN rooms r ON r.id = c.room_id
               WHERE c.id = :container_id";
@@ -455,7 +461,7 @@ function authAssertContainerScope(PDO $db, array $user, int $containerId, ?int $
         authRespond(404, ['status' => 'error', 'message' => 'Container not found.']);
     }
 
-    if (!authCanAccessRoomType($user, isset($container['type']) ? (string) $container['type'] : null)) {
+    if (!authCanAccessRoomType($user, isset($container['type']) ? (string) $container['type'] : null, isset($container['category']) ? (string) $container['category'] : null)) {
         authRespond(403, ['status' => 'error', 'message' => 'Container access denied for current scope.']);
     }
 
@@ -465,7 +471,7 @@ function authAssertContainerScope(PDO $db, array $user, int $containerId, ?int $
 function authAssertItemScope(PDO $db, array $user, int $itemId): array
 {
     $stmt = $db->prepare(
-        "SELECT i.id, c.id AS container_id, r.id AS room_id, r.type
+        "SELECT i.id, c.id AS container_id, r.id AS room_id, r.type, r.category
          FROM items i
          INNER JOIN containers c ON c.id = i.container_id
          INNER JOIN rooms r ON r.id = c.room_id
@@ -480,9 +486,10 @@ function authAssertItemScope(PDO $db, array $user, int $itemId): array
         authRespond(404, ['status' => 'error', 'message' => 'Item not found.']);
     }
 
-    if (!authCanAccessRoomType($user, isset($item['type']) ? (string) $item['type'] : null)) {
+    if (!authCanAccessRoomType($user, isset($item['type']) ? (string) $item['type'] : null, isset($item['category']) ? (string) $item['category'] : null)) {
         authRespond(403, ['status' => 'error', 'message' => 'Item access denied for current scope.']);
     }
 
     return $item;
 }
+

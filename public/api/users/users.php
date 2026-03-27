@@ -53,7 +53,7 @@ function validUserId($value): ?int
 
 function validateRoleOrFail(string $role): string
 {
-    $allowedRoles = ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras'];
+    $allowedRoles = ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras', 'admin_nl'];
     if (!in_array($role, $allowedRoles, true)) {
         respondUser(400, ['status' => 'error', 'message' => 'Invalid role value.']);
     }
@@ -68,7 +68,7 @@ function validateLabScopeOrFail($labScope): ?string
     }
 
     $scope = (string) $labScope;
-    $allowedScopes = ['all', 'computer', 'biology', 'physics'];
+    $allowedScopes = ['all', 'computer', 'biology', 'physics', 'chemistry', 'non-lab'];
     if (!in_array($scope, $allowedScopes, true)) {
         respondUser(400, ['status' => 'error', 'message' => 'Invalid lab scope value.']);
     }

@@ -5,8 +5,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import StationDetailModal from '../components/inventory/StationDetailModal';
+
 import ContainerDetailModal from '../components/inventory/ContainerDetailModal';
+import { ImageUpload } from '../components/common/ImageUpload';
 import type { Container } from '../types';
 
 // Isometric Container Card
@@ -38,8 +39,10 @@ const ContainerCard = ({ container }: { container: Container }) => {
             whileTap={{ scale: 0.98 }}
             className={`relative w-32 h-32 rounded-xl shadow-md border-2 ${visualClass} cursor-pointer flex flex-col items-center justify-between py-6 transition-all group hover:shadow-lg`}
         >
-            <div className="flex-1 flex items-center justify-center opacity-80">
-                {getIcon()}
+            <div className="flex-1 flex items-center justify-center opacity-80 overflow-hidden w-full relative">
+                {container.imageUrl ? (
+                    <img src={`${window.location.protocol}//${window.location.host}/${container.imageUrl}`} alt={container.name} className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:opacity-100 transition-opacity" />
+                ) : getIcon()}
             </div>
             <div className="text-center w-full px-2">
                 <div className="font-bold text-sm truncate">{container.name}</div>
@@ -104,12 +107,12 @@ const RoomDetail = () => {
     const canEdit = currentUser ? canEditFeature('rooms', currentUser.role) : false;
     const room = getRoom(roomId || '');
 
-    const hasGlobalAccess = currentUser?.role === 'admin' || currentUser?.role === 'kepala_sekolah' || currentUser?.role === 'sarpras';
-    const isRestricted = !hasGlobalAccess && currentUser && currentUser.labScope !== 'all' && room && room.type !== currentUser.labScope;
+    const labScope = currentUser?.labScope ?? '';
+    const hasSpecificScope = labScope !== '' && labScope !== 'all' && labScope !== 'non-lab';
+    const isRestricted = currentUser && hasSpecificScope && room && room.type !== labScope;
 
     const [scale, setScale] = useState(1);
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
-    const isComputerLab = room?.type === 'computer';
 
     // Keep modal context in sync with global state to get actual DB IDs after optimstic updates
     // Keep modal context in sync with global state to get actual DB IDs after optimstic updates
@@ -129,6 +132,7 @@ const RoomDetail = () => {
     const [newContainerType, setNewContainerType] = useState<'table' | 'cupboard' | 'shelf'>('table');
     const [newContainerName, setNewContainerName] = useState('');
     const [newContainerQuantity, setNewContainerQuantity] = useState<number | ''>('');
+    const [newContainerImageUrl, setNewContainerImageUrl] = useState('');
     const getErrorMessage = (error: unknown, fallback: string) =>
         error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 
@@ -142,6 +146,7 @@ const RoomDetail = () => {
                 : `${newContainerType.charAt(0).toUpperCase() + newContainerType.slice(1)} ${containers.length + i + 1}`,
             type: newContainerType,
             status: 'good',
+            imageUrl: newContainerImageUrl,
             items: [],
             position: { x: (containers.length + i) % 4, y: Math.floor((containers.length + i) / 4) }
         }));
@@ -151,6 +156,7 @@ const RoomDetail = () => {
             setIsAddModalOpen(false);
             setNewContainerName('');
             setNewContainerQuantity('');
+            setNewContainerImageUrl('');
         } catch (error) {
             console.error('Failed to add containers:', error);
             alert(getErrorMessage(error, 'Gagal menambah container. Silakan coba lagi.'));
@@ -252,7 +258,7 @@ const RoomDetail = () => {
                 <div className="flex gap-2">
                     {canEdit && (
                         <button
-                            onClick={() => { setIsAddModalOpen(true); setNewContainerName(''); setNewContainerType('table'); setNewContainerQuantity(''); }}
+                            onClick={() => { setIsAddModalOpen(true); setNewContainerName(''); setNewContainerType('table'); setNewContainerQuantity(''); setNewContainerImageUrl(''); }}
                             className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-xl shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-colors mr-2 font-semibold"
                         >
                             <Plus size={18} />
@@ -329,22 +335,13 @@ const RoomDetail = () => {
 
             <AnimatePresence>
                 {selectedContainer && (
-                    isComputerLab && selectedContainer.type === 'table' ? (
-                        <StationDetailModal
-                            station={selectedContainer}
-                            roomId={room.id}
-                            onClose={() => setSelectedContainer(null)}
-                            onUpdate={handleUpdateContainer}
-                        />
-                    ) : (
-                        <ContainerDetailModal
-                            container={selectedContainer}
-                            roomId={room.id}
-                            roomName={room.name}
-                            onClose={() => setSelectedContainer(null)}
-                            onUpdate={handleUpdateContainer}
-                        />
-                    )
+                    <ContainerDetailModal
+                        container={selectedContainer}
+                        roomId={room.id}
+                        roomName={room.name}
+                        onClose={() => setSelectedContainer(null)}
+                        onUpdate={handleUpdateContainer}
+                    />
                 )}
             </AnimatePresence>
 
@@ -406,6 +403,12 @@ const RoomDetail = () => {
                                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
                                 />
                             </div>
+                            <ImageUpload
+                                value={newContainerImageUrl}
+                                onChange={setNewContainerImageUrl}
+                                label="Gambar Wadah (Opsional)"
+                                description="JPG, PNG, WEBP (Max 5MB)"
+                            />
                             <button
                                 onClick={handleAddContainer}
                                 className="w-full py-2.5 bg-[#000080] text-white rounded-xl font-semibold hover:bg-[#000060] transition-colors mt-2"

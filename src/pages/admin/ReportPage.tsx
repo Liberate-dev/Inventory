@@ -112,8 +112,18 @@ const isOutgoingAction = (action: string): boolean => {
 const mutationDescription = (log: MonthlyLogRow): string => {
     const details = log.details;
     if (log.action === 'TRANSFER') return `Dari ${String(details.from ?? '-')} ke ${String(details.to ?? '-')}`;
-    if (log.action === 'CHECK_OUT') return `Dipinjam oleh ${String(details.borrower ?? '-')}`;
-    if (log.action === 'RETURNED') return `Dikembalikan oleh ${String(details.returner ?? details.borrower ?? '-')}`;
+    if (log.action === 'CHECK_OUT') {
+        let text = `Dipinjam oleh ${String(details.borrower ?? '-')}`;
+        if (details.lentBy) text += ` (Dipinjam dari: ${String(details.lentBy)})`;
+        if (details.purpose) text += ` untuk ${String(details.purpose)}`;
+        return text;
+    }
+    if (log.action === 'RETURNED') {
+        let text = `Dikembalikan oleh ${String(details.returner ?? details.borrower ?? '-')}`;
+        if (details.receivedBy) text += ` (Diterima oleh: ${String(details.receivedBy)})`;
+        if (details.returnDate) text += ` pada ${new Date(details.returnDate as string).toLocaleDateString('id-ID')}`;
+        return text;
+    }
     return normalizeActionLabel(log.action);
 };
 
@@ -220,7 +230,8 @@ const ReportPage = () => {
         if (!user) return rooms;
         const isScopeRestricted =
             Boolean(user.labScope)
-            && user.labScope !== 'all';
+            && user.labScope !== 'all'
+            && user.labScope !== 'non-lab';
 
         return isScopeRestricted
             ? rooms.filter((room) => room.type === user.labScope)

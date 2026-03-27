@@ -9,6 +9,7 @@ import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { useToast } from '../../context/ToastContext';
 import { useItemForm } from '../../hooks/useItemForm';
 import { ItemConditionBadge } from '../common/ItemConditionBadge';
+import { ImageUpload } from '../common/ImageUpload';
 
 interface ContainerDetailModalProps {
     container: Container;
@@ -31,8 +32,6 @@ const renderItemIcon = (type: string, name: string, size: number) => {
     return <Box size={size} />;
 };
 
-// Lazy import for icon components to avoid circular dependencies or massive imports if not needed, 
-// but here we just return the component.
 const Microscope = ({ size }: { size: number }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M6 18h8" /><path d="M3 22h18" /><path d="M14 22a7 7 0 1 0 0-14h-1" /><path d="M9 14h2" /><path d="M9 12a2 2 0 0 1-2-2V6h6v4a2 2 0 0 1-2 2Z" /><path d="M12 6V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3" />
@@ -101,10 +100,15 @@ const formatLogDetails = (action: string, details: unknown): string => {
         return `Dari ${sanitizeLocation(data.from)} ke ${sanitizeLocation(data.to)}`;
     }
     if (action === 'CHECK_OUT' && data) {
-        return `Peminjam: ${String(data.borrower ?? '-')} - ${String(data.purpose ?? '-')}`;
+        let text = `Peminjam: ${String(data.borrower ?? '-')} - ${String(data.purpose ?? '-')}`;
+        if (data.lentBy) text += ` (Dipinjam dari: ${String(data.lentBy)})`;
+        return text;
     }
     if (action === 'RETURNED' && data) {
-        return `Dikembalikan oleh: ${String(data.returner ?? data.borrower ?? '-')} (Kondisi: ${String(data.condition ?? '-')})`;
+        let text = `Dikembalikan oleh: ${String(data.returner ?? data.borrower ?? '-')}`;
+        if (data.receivedBy) text += ` (Diterima oleh: ${String(data.receivedBy)})`;
+        text += ` (Kondisi: ${String(data.condition ?? '-')})`;
+        return text;
     }
     if (action === 'MAINTENANCE_REQUESTED' && data) {
         return `Laporan masuk: ${String(data.description ?? '-')}`;
@@ -216,6 +220,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
             sku: formData.sku,
             type: formData.category || 'Standard', // Maps to type for legacy support
             category: formData.category,
+            source: formData.source,
             isConsumable: formData.isConsumable,
             quantity: formData.quantity === '' ? 1 : formData.quantity,
             unit: formData.unit,
@@ -297,8 +302,6 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
         if (!isEditing || !editingId || !reportReason.trim()) return;
 
         try {
-            // Find the original item for some context if needed, or use formData
-            // Using formData is safer for current state
             await addRequest({
                 componentId: editingId,
                 componentName: formData.name,
@@ -335,8 +338,6 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
             showToast(error instanceof Error ? error.message : 'Gagal mengirim laporan ke backend.', 'error');
         }
     };
-
-
 
     const activeRequest = editingId ? requests.find((r: ServiceRequest) => r.componentId === editingId && r.status !== 'completed' && r.status !== 'denied') : undefined;
     const selectedItemLogs = editingId
@@ -517,6 +518,35 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                     <option value="Electronics" />
                                                 </datalist>
                                             </div>
+
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Asal Barang</label>
+                                                <input
+                                                    type="text"
+                                                    value={formData.source}
+                                                    onChange={(e) => updateField('source', e.target.value)}
+                                                    disabled={isReadOnlyMode}
+                                                    list="source-suggestions"
+                                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                    placeholder="e.g. Dana Sekolah"
+                                                />
+                                                <datalist id="source-suggestions">
+                                                    <option value="Dana Sekolah" />
+                                                    <option value="Dana Hibah" />
+                                                    <option value="BOS" />
+                                                    <option value="BOP" />
+                                                    <option value="Donasi" />
+                                                </datalist>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                            <ImageUpload
+                                                value={formData.imageUrl}
+                                                onChange={(url) => updateField('imageUrl', url)}
+                                                label="Gambar Item (Opsional)"
+                                                description="JPG, PNG, WEBP (Max 5MB)"
+                                            />
                                         </div>
 
                                         {/* SECTION 2: TRACKING & STOCK */}
@@ -543,7 +573,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                         inputMode="numeric"
                                                         pattern="[0-9]*"
                                                         placeholder="e.g. 1"
-                                                        value={formData.quantity}
+                                                        value={formData.quantity || ''}
                                                         disabled={isReadOnlyMode}
                                                         onChange={(e) => {
                                                             const val = e.target.value.replace(/\D/g, '');
@@ -572,7 +602,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                             inputMode="numeric"
                                                             pattern="[0-9]*"
                                                             placeholder="e.g. 0"
-                                                            value={formData.minStock}
+                                                            value={formData.minStock || ''}
                                                             disabled={isReadOnlyMode}
                                                             onChange={(e) => {
                                                                 const val = e.target.value.replace(/\D/g, '');
@@ -740,7 +770,6 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 };
 
 // 2D Item Card Component matching user design
-// 2D ItemCard Component
 const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest, canEdit = true }: { item: Item, onEdit: () => void, onDelete: () => void, hasActiveRequest?: boolean, canEdit?: boolean }) => {
     const { t } = useLanguage();
 
@@ -767,8 +796,10 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest, canEdit = true }: 
                 </div>
             )}
 
-            <div className="w-14 h-14 mb-4 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors">
-                {renderItemIcon(item.type, item.name, 28)}
+            <div className="w-14 h-14 mb-4 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors overflow-hidden relative border border-gray-100">
+                {item.imageUrl || item.image_layer ? (
+                    <img src={`${window.location.protocol}//${window.location.host}/${item.imageUrl || item.image_layer}`} alt={item.name} className="absolute inset-0 w-full h-full object-cover" />
+                ) : renderItemIcon(item.type, item.name, 28)}
             </div>
 
             <h4 className="font-bold text-gray-900 text-base mb-1 text-center leading-tight line-clamp-2">{item.name}</h4>

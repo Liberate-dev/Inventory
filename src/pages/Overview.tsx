@@ -46,15 +46,15 @@ const Overview = () => {
 
     const [activeModal, setActiveModal] = useState<'rooms' | 'assets' | 'pending' | 'inprogress' | null>(null);
 
-    // Fix 3: Filter rooms by labScope for kepala_lab
+    // Filter rooms by labScope for restricted users
     const scopedRooms = (() => {
-        if (user?.role === 'kepala_lab' && user.labScope && user.labScope !== 'all') {
+        if (user?.labScope && user.labScope !== 'all' && user.labScope !== 'non-lab') {
             return rooms.filter(r => r.type === user.labScope);
         }
         return rooms;
     })();
 
-    // Fix 3: Compute localized recentLogs from scopedRooms only
+    // Compute localized recentLogs from scopedRooms only
     const scopedRecentLogs = (() => {
         const logs: { roomName: string; itemName: string; log: any }[] = [];
         scopedRooms.forEach(room => {
@@ -70,7 +70,7 @@ const Overview = () => {
         return logs.slice(0, 10);
     })();
 
-    // Fix 4: Compute low-stock consumable items (kepala_lab only)
+    // Compute low-stock consumable items
     const lowStockItems = (() => {
         if (!user) return [];
         const result: { roomName: string; containerName: string; itemName: string; quantity: number; minStock: number; unit: string }[] = [];
@@ -113,15 +113,6 @@ const Overview = () => {
         { name: 'May', issues: 12 },
         { name: 'Jun', issues: 8 },
     ];
-
-    // const distributionData = [
-    //     { name: t('good'), value: stats.health.good },
-    //     { name: t('service'), value: stats.health.service },
-    //     { name: t('damaged'), value: stats.health.damaged },
-    // ].filter((item) => item.value > 0);
-
-    // const chartData = distributionData.length > 0 ? distributionData : [{ name: t('no_assets'), value: 1 }];
-    // const chartColors = distributionData.length > 0 ? COLORS : ['#E5E7EB'];
 
     return (
         <div className="h-full flex flex-col gap-6 overflow-y-auto pr-2 pb-4 font-sans">
@@ -195,7 +186,6 @@ const Overview = () => {
                     </div>
                 </div>
 
-                {/* Fix 4: Low Stock Warning Section */}
                 {lowStockItems.length > 0 && (
                     <div className="bg-white p-6 rounded-2xl border border-rose-200 shadow-md shadow-rose-900/5 flex flex-col">
                         <div className="flex items-center gap-3 mb-5">
@@ -228,31 +218,6 @@ const Overview = () => {
                 )}
             </div>
 
-            {/* Asset Condition Card Hidden */}
-            {/* <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 flex flex-col">
-                    <h3 className="font-bold text-slate-800 text-lg mb-3">{t('asset_condition')}</h3>
-                    <div className="flex-1 min-h-0">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={chartData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={84}
-                                    paddingAngle={4}
-                                    dataKey="value"
-                                >
-                                    {chartData.map((_entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={chartColors[index % chartColors.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip />
-                                <Legend verticalAlign="bottom" height={32} />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div> */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md shadow-blue-900/5 h-80">
                     <h3 className="font-bold text-slate-800 text-lg mb-4">{t('maintenance_trend')}</h3>
@@ -309,13 +274,11 @@ const Overview = () => {
                 </div>
             </div>
 
-            {/* Modal Popups for Stat Cards */}
             {
                 activeModal && (
                     <div className="fixed inset-0 z-50 flex justify-center pt-[15vh] px-4">
                         <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setActiveModal(null)} />
                         <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[75vh] flex flex-col overflow-hidden relative animate-in fade-in zoom-in-95 duration-200">
-                            {/* Modal Header */}
                             <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-white">
                                 <h3 className="text-xl font-bold text-[#000080]">
                                     {activeModal === 'rooms' && (portalType === 'lab' ? t('active_labs') : t('active_rooms'))}
@@ -331,7 +294,6 @@ const Overview = () => {
                                 </button>
                             </div>
 
-                            {/* Modal Body */}
                             <div className="p-0 overflow-auto flex-1 bg-slate-50">
                                 {activeModal === 'rooms' && (
                                     <table className="w-full text-left text-sm whitespace-nowrap">

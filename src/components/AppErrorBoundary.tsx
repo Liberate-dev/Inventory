@@ -18,7 +18,7 @@ class AppErrorBoundary extends React.Component<Props, State> {
     static getDerivedStateFromError(error: unknown): State {
         return {
             hasError: true,
-            message: error instanceof Error ? error.message : 'Unexpected runtime error'
+            message: error instanceof Error ? error.message : 'Terjadi kesalahan tak terduga'
         };
     }
 

@@ -8,6 +8,7 @@ export type AccessLevel = 'full' | 'view' | 'none';
 export type FeatureKey =
     | 'dashboard'
     | 'rooms'
+    | 'item_management'
     | 'service_requests'
     | 'operations'
     | 'reports'
@@ -18,19 +19,21 @@ export type FeatureKey =
 export type AccessMatrix = Record<FeatureKey, Record<UserRole, AccessLevel>>;
 
 export const DEFAULT_MATRIX: AccessMatrix = {
-    dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full' },
-    rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view' },
-    service_requests: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'view', sarpras: 'full' },
-    operations: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none' },
-    reports: { admin: 'none', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full' },
-    print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full' },
-    user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
-    system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
+    dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'full' },
+    rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view', admin_nl: 'full' },
+    item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view', admin_nl: 'full' },
+    service_requests: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'view', sarpras: 'full', admin_nl: 'view' },
+    operations: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'full' },
+    reports: { admin: 'none', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'full' },
+    print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full', admin_nl: 'none' },
+    user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
+    system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
 };
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
     dashboard: 'Dashboard',
     rooms: 'Ruangan & Inventaris',
+    item_management: 'Manajemen Barang',
     service_requests: 'Permintaan Layanan',
     operations: 'Operasional',
     reports: 'Laporan Bulanan',

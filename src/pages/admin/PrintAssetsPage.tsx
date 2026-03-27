@@ -87,7 +87,8 @@ const PrintAssetsPage = () => {
         if (!user) return rooms;
         const isScopeRestricted =
             Boolean(user.labScope)
-            && user.labScope !== 'all';
+            && user.labScope !== 'all'
+            && user.labScope !== 'non-lab';
 
         return isScopeRestricted
             ? rooms.filter((room) => room.type === user.labScope)

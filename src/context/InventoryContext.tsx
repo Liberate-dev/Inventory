@@ -129,6 +129,7 @@ const normalizeRooms = (raw: unknown): Room[] => {
                 name: typeof room.name === 'string' && room.name.trim().length > 0 ? room.name : 'Unnamed Room',
                 category,
                 type: roomType,
+                roomOwner: typeof (room as any).room_owner === 'string' && (room as any).room_owner.trim() !== '' ? (room as any).room_owner : (typeof room.roomOwner === 'string' && room.roomOwner.trim() !== '' ? room.roomOwner : undefined),
                 customType: typeof room.customType === 'string' ? room.customType : undefined,
                 capacity: typeof room.capacity === 'number' ? room.capacity : 0,
                 containers: Array.isArray(room.containers) ? room.containers.map(normalizeContainer) : []
@@ -352,7 +353,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
                         category: room.category ?? portalType,
                         type: room.type,
                         customType: room.customType ?? null,
-                        capacity: room.capacity ?? 0
+                        capacity: room.capacity ?? 0,
+                        roomOwner: room.roomOwner ?? null
                     })
                 },
                 'Gagal menambah room.'
@@ -378,7 +380,8 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
                         category: room.category,
                         type: room.type,
                         customType: room.customType ?? null,
-                        capacity: room.capacity ?? 0
+                        capacity: room.capacity ?? 0,
+                        roomOwner: room.roomOwner ?? null
                     })
                 },
                 'Gagal memperbarui room.'

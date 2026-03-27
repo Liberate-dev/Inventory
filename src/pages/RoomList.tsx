@@ -12,6 +12,7 @@ import {
     GraduationCap,
     Briefcase,
     Warehouse,
+    User as UserIcon2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Room } from '../types';
@@ -122,6 +123,7 @@ const RoomList = () => {
                     type: roomData.type || (portalType === 'lab' ? 'computer' : 'classroom'),
                     customType: roomData.customType,
                     capacity: typeof roomData.capacity === 'number' ? roomData.capacity : 0,
+                    roomOwner: roomData.roomOwner || '',
                     containers: []
                 });
             }
@@ -148,7 +150,7 @@ const RoomList = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {rooms.filter(room => !currentUser?.labScope || currentUser.labScope === 'all' || room.type === currentUser.labScope).map((room) => {
+                {rooms.filter(room => !currentUser?.labScope || currentUser.labScope === 'all' || currentUser.labScope === 'non-lab' || room.type === currentUser.labScope).map((room) => {
                     const Icon = getIcon(room.type);
                     const colorClass = getColor(room.type);
 
@@ -169,6 +171,12 @@ const RoomList = () => {
                             </div>
 
                             <h4 className="text-lg font-bold text-slate-900 mb-1">{room.name}</h4>
+                            {room.roomOwner && (
+                                <p className="text-xs text-slate-500 flex items-center gap-1 mb-1">
+                                    <UserIcon2 size={12} />
+                                    {room.roomOwner}
+                                </p>
+                            )}
                             <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-sm">
                                 <span
                                     className={`px-2 py-1 rounded text-xs font-semibold ${room.type === 'computer'
@@ -241,6 +249,16 @@ const RoomList = () => {
                             </button>
                         </div>
                         <div className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1">Nama Pemilik Ruangan</label>
+                                <input
+                                    type="text"
+                                    value={currentRoom.roomOwner || ''}
+                                    onChange={(e) => setCurrentRoom({ ...currentRoom, roomOwner: e.target.value })}
+                                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#000080] outline-none"
+                                    placeholder="e.g. Bpk. John Doe"
+                                />
+                            </div>
                             <div>
                                 <label className="block text-sm font-semibold text-slate-700 mb-1">{t('room_id')}</label>
                                 <input

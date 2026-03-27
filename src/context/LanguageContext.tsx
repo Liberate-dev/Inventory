@@ -94,6 +94,7 @@ export const LanguageProvider = ({ children }: { children: ReactNode }) => {
         'lab_rooms': { en: 'Lab Rooms', id: 'Ruang Lab' },
         'service_requests': { en: 'Service Requests', id: 'Permintaan Layanan' },
         'operations': { en: 'Operations', id: 'Operasional' },
+        'reports': { en: 'Reports', id: 'Laporan' },
         'assets': { en: 'Assets', id: 'Aset' },
         'monthly_report': { en: 'Monthly Report', id: 'Laporan Bulanan' },
         'print_assets': { en: 'Label & Inventory Codes', id: 'Manajemen Kode Inventaris' },

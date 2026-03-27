@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import type { User, UserRole } from '../../types';
 import { useAccessMatrix, FEATURE_LABELS } from '../../context/AccessMatrixContext';
@@ -12,9 +12,12 @@ const ROLE_CONFIG: Record<UserRole, { label: string; color: string; bg: string; 
     guru: { label: 'Guru / Asisten', color: 'text-blue-700', bg: 'bg-blue-100', description: 'Kelola inventaris lab dan operasional.' },
     kepala_sekolah: { label: 'Kepsek', color: 'text-amber-700', bg: 'bg-amber-100', description: 'Melihat laporan dan kondisi seluruh inventaris (read-only).' },
     sarpras: { label: 'Sarpras', color: 'text-rose-700', bg: 'bg-rose-100', description: 'Melihat permintaan layanan dan inventaris (read-only).' },
+    admin_nl: { label: 'Admin Non-Lab', color: 'text-indigo-700', bg: 'bg-indigo-50', description: 'Kelola inventaris dan operasional Non-Lab.' },
 };
 
-const ROLE_OPTIONS: UserRole[] = ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras'];
+const ROLE_OPTIONS: UserRole[] = ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras', 'admin_nl'];
+const LAB_MATRIX_ROLES: UserRole[] = ['admin', 'kepala_lab', 'guru', 'kepala_sekolah', 'sarpras'];
+const NONLAB_MATRIX_ROLES: UserRole[] = ['admin', 'admin_nl', 'kepala_sekolah', 'sarpras'];
 
 const getRoleLabel = (role: UserRole): string => ROLE_CONFIG[role]?.label ?? role;
 const getRoleColor = (role: UserRole): string => `${ROLE_CONFIG[role]?.bg ?? 'bg-slate-100'} ${ROLE_CONFIG[role]?.color ?? 'text-slate-600'}`;
@@ -28,16 +31,230 @@ const LEVEL_CONFIG: Record<AccessLevel, { label: string; cellCls: string; icon: 
 };
 const FEATURE_KEYS = Object.keys(FEATURE_LABELS) as FeatureKey[];
 
+// ── Access Matrix Modal ───────────────────────────────────────────────────────
+function AccessMatrixModal({ onClose }: { onClose: () => void }) {
+    const { getAccess, canEditFeature, setAccess, resetMatrix, loading: matrixLoading } = useAccessMatrix();
+    const { user: currentUser } = useAuth();
+    const [isEditingMatrix, setIsEditingMatrix] = useState(false);
+    const [activeTab, setActiveTab] = useState<'lab' | 'nonlab'>('lab');
+
+    const canManageUserManagement = currentUser ? canEditFeature('user_management', currentUser.role) : false;
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-white rounded-2xl w-full max-w-6xl shadow-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                
+                {/* Header */}
+                <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck size={24} className="text-[#000080]" />
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800">Matriks Hak Akses per Peran</h3>
+                            <p className="text-xs text-slate-500">
+                                {isEditingMatrix
+                                    ? 'Mode Edit aktif — klik sel untuk mengubah level akses.'
+                                    : 'Tekan Edit untuk mengubah hak akses per peran.'}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        {isEditingMatrix ? (
+                            <>
+                                <button
+                                    onClick={() => {
+                                        void resetMatrix().catch((error) => {
+                                            console.error('Failed to reset access matrix:', error);
+                                            alert(error instanceof Error ? error.message : 'Gagal mereset matriks akses.');
+                                        });
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                                    title="Reset ke default"
+                                >
+                                    <RotateCcw size={14} /> Reset
+                                </button>
+                                <button
+                                    onClick={() => setIsEditingMatrix(false)}
+                                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-[#000080] rounded-lg hover:bg-[#000060] shadow-sm transition-colors"
+                                >
+                                    Selesai
+                                </button>
+                            </>
+                        ) : (
+                            <button
+                                disabled={!canManageUserManagement}
+                                onClick={() => setIsEditingMatrix(true)}
+                                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-bold border rounded-lg transition-colors ${canManageUserManagement
+                                    ? 'text-[#000080] bg-blue-50 border-blue-200 hover:bg-blue-100 shadow-sm'
+                                    : 'text-slate-400 bg-slate-100 border-slate-200 cursor-not-allowed'
+                                    }`}
+                            >
+                                <Edit2 size={16} /> Edit Matriks
+                            </button>
+                        )}
+                        <div className="w-px h-8 bg-slate-200 mx-1"></div>
+                        <button onClick={onClose} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full text-slate-400 transition-colors"><X size={20} /></button>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex px-6 border-b border-slate-100 bg-white shadow-sm z-10">
+                    <button 
+                        onClick={() => setActiveTab('lab')}
+                        className={`px-8 py-3.5 text-sm font-bold border-b-2 transition-all ${activeTab === 'lab' ? 'border-[#000080] text-[#000080]' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}
+                    >
+                        Portal Lab
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('nonlab')}
+                        className={`px-8 py-3.5 text-sm font-bold border-b-2 transition-all ${activeTab === 'nonlab' ? 'border-[#000080] text-[#000080]' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}
+                    >
+                        Portal Non-Lab
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto bg-slate-50 p-6">
+                    {activeTab === 'lab' && (
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider">
+                                        <th className="p-4 text-left border-r border-slate-100 min-w-[200px]">Fitur Sistem</th>
+                                        {LAB_MATRIX_ROLES.map(role => (
+                                            <th key={role} className="p-4 text-center border-r border-slate-100 whitespace-nowrap">{getRoleLabel(role)}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {matrixLoading ? (
+                                        <tr>
+                                            <td colSpan={LAB_MATRIX_ROLES.length + 1} className="p-8 text-center text-sm font-medium text-slate-500">
+                                                <RotateCcw className="inline animate-spin mr-2" size={16} /> Memuat matriks akses...
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        <>
+                                            {FEATURE_KEYS.map(featureKey => (
+                                                <tr key={featureKey} className="hover:bg-slate-50/50 transition-colors group">
+                                                    <td className="p-4 font-bold text-slate-700 border-r border-slate-100 group-hover:bg-slate-50/80">{FEATURE_LABELS[featureKey]}</td>
+                                                    {LAB_MATRIX_ROLES.map(role => {
+                                                        const level = getAccess(featureKey, role);
+                                                        const cfg = LEVEL_CONFIG[level];
+                                                        const nextLevel = LEVEL_CYCLE[(LEVEL_CYCLE.indexOf(level) + 1) % LEVEL_CYCLE.length];
+                                                        const isLocked = role === 'admin' || !isEditingMatrix || !canManageUserManagement;
+                                                        return (
+                                                            <td key={role} className="p-3 text-center border-r border-slate-100">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (isLocked) return;
+                                                                        void setAccess(featureKey, role, nextLevel).catch((error) => {
+                                                                            console.error('Failed to update access matrix:', error);
+                                                                            alert(error instanceof Error ? error.message : 'Gagal memperbarui matriks akses.');
+                                                                        });
+                                                                    }}
+                                                                    disabled={isLocked}
+                                                                    className={`inline-flex items-center justify-center w-28 h-9 rounded-lg border text-xs font-bold transition-all shadow-sm ${isEditingMatrix && !isLocked
+                                                                        ? `${cfg.cellCls} cursor-pointer hover:-translate-y-0.5 active:translate-y-0 ring-2 ring-transparent hover:ring-current/30`
+                                                                        : `${cfg.cellCls} opacity-90 cursor-default`
+                                                                        }`}
+                                                                    title={role === 'admin' ? 'Super Admin mengikuti kebijakan inti sistem' : !isEditingMatrix ? 'Tekan Edit untuk mengubah' : `Klik untuk ubah ke ${LEVEL_CONFIG[nextLevel].label}`}
+                                                                >
+                                                                    {cfg.icon} <span className="ml-1.5">{cfg.label}</span>
+                                                                </button>
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {activeTab === 'nonlab' && (
+                        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto animate-in fade-in duration-300">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold text-xs uppercase tracking-wider">
+                                        <th className="p-4 text-left border-r border-slate-100 min-w-[200px]">Fitur Sistem</th>
+                                        {NONLAB_MATRIX_ROLES.map(role => (
+                                            <th key={role} className="p-4 text-center border-r border-slate-100 whitespace-nowrap">{getRoleLabel(role)}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {matrixLoading ? (
+                                        <tr>
+                                            <td colSpan={NONLAB_MATRIX_ROLES.length + 1} className="p-8 text-center text-sm font-medium text-slate-500">
+                                                <RotateCcw className="inline animate-spin mr-2" size={16} /> Memuat matriks akses...
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        <>
+                                            {FEATURE_KEYS.map(featureKey => (
+                                                <tr key={featureKey} className="hover:bg-slate-50/50 transition-colors group">
+                                                    <td className="p-4 font-bold text-slate-700 border-r border-slate-100 group-hover:bg-slate-50/80">{FEATURE_LABELS[featureKey]}</td>
+                                                    {NONLAB_MATRIX_ROLES.map(role => {
+                                                        const level = getAccess(featureKey, role);
+                                                        const cfg = LEVEL_CONFIG[level];
+                                                        const nextLevel = LEVEL_CYCLE[(LEVEL_CYCLE.indexOf(level) + 1) % LEVEL_CYCLE.length];
+                                                        const isLocked = role === 'admin' || !isEditingMatrix || !canManageUserManagement;
+                                                        return (
+                                                            <td key={role} className="p-3 text-center border-r border-slate-100">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (isLocked) return;
+                                                                        void setAccess(featureKey, role, nextLevel).catch((error) => {
+                                                                            console.error('Failed to update access matrix:', error);
+                                                                            alert(error instanceof Error ? error.message : 'Gagal memperbarui matriks akses.');
+                                                                        });
+                                                                    }}
+                                                                    disabled={isLocked}
+                                                                    className={`inline-flex items-center justify-center w-28 h-9 rounded-lg border text-xs font-bold transition-all shadow-sm ${isEditingMatrix && !isLocked
+                                                                        ? `${cfg.cellCls} cursor-pointer hover:-translate-y-0.5 active:translate-y-0 ring-2 ring-transparent hover:ring-current/30`
+                                                                        : `${cfg.cellCls} opacity-90 cursor-default`
+                                                                        }`}
+                                                                    title={role === 'admin' ? 'Super Admin mengikuti kebijakan inti sistem' : !isEditingMatrix ? 'Tekan Edit untuk mengubah' : `Klik untuk ubah ke ${LEVEL_CONFIG[nextLevel].label}`}
+                                                                >
+                                                                    {cfg.icon} <span className="ml-1.5">{cfg.label}</span>
+                                                                </button>
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer Guide */}
+                <div className="px-6 py-4 bg-white border-t border-slate-200 flex flex-wrap gap-5 text-xs text-slate-500 items-center justify-between">
+                    <div className="flex gap-4">
+                        <span className="flex items-center gap-2"><span className="px-2.5 py-1 rounded bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">✓ Penuh</span> Akses dan tindakan tak terbatas</span>
+                        <span className="flex items-center gap-2"><span className="px-2.5 py-1 rounded bg-amber-100 text-amber-800 font-bold border border-amber-200">👁 View</span> Mode baca (Read-only)</span>
+                        <span className="flex items-center gap-2"><span className="px-2.5 py-1 rounded bg-slate-100 text-slate-500 font-bold border border-slate-200">— Tidak Ada</span> Disembunyikan total</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 const UserManagement = () => {
     const { allUsers, deleteUser, user: currentUser } = useAuth();
-    const { getAccess, canEditFeature, setAccess, resetMatrix, loading: matrixLoading } = useAccessMatrix();
+    const { getAccess, canEditFeature } = useAccessMatrix();
     const [searchTerm, setSearchTerm] = useState('');
     const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [showAccessMatrix, setShowAccessMatrix] = useState(false);
-    const [isEditingMatrix, setIsEditingMatrix] = useState(false);
 
     const accessLevel = currentUser ? getAccess('user_management', currentUser.role) : 'none';
     const canManageUserManagement = currentUser ? canEditFeature('user_management', currentUser.role) : false;
@@ -116,126 +333,9 @@ const UserManagement = () => {
                 </div>
             </div>
 
-            {/* Access Matrix Panel */}
+            {/* Access Matrix Modal */}
             {showAccessMatrix && (
-                <div className="bg-white rounded-2xl shadow-md border border-slate-200 overflow-hidden animate-in slide-in-from-top-2 duration-200">
-                    <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <ShieldCheck size={20} className="text-[#000080]" />
-                            <div>
-                                <h3 className="font-bold text-slate-800">Matriks Hak Akses per Peran</h3>
-                                <p className="text-xs text-slate-500">
-                                    {isEditingMatrix
-                                        ? 'Mode Edit aktif — klik sel untuk mengubah level akses.'
-                                        : 'Tekan Edit untuk mengubah hak akses per peran.'}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {isEditingMatrix ? (
-                                <>
-                                    <button
-                                        onClick={() => {
-                                            void resetMatrix().catch((error) => {
-                                                console.error('Failed to reset access matrix:', error);
-                                                alert(error instanceof Error ? error.message : 'Gagal mereset matriks akses.');
-                                            });
-                                        }}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                                        title="Reset ke default"
-                                    >
-                                        <RotateCcw size={14} /> Reset
-                                    </button>
-                                    <button
-                                        onClick={() => setIsEditingMatrix(false)}
-                                        className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-[#000080] rounded-lg hover:bg-[#000060] transition-colors"
-                                    >
-                                        Selesai
-                                    </button>
-                                </>
-                            ) : (
-                                <button
-                                    disabled={!canManageUserManagement}
-                                    onClick={() => setIsEditingMatrix(true)}
-                                    className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold border rounded-lg transition-colors ${canManageUserManagement
-                                        ? 'text-[#000080] bg-blue-50 border-blue-200 hover:bg-blue-100'
-                                        : 'text-slate-400 bg-slate-100 border-slate-200 cursor-not-allowed'
-                                        }`}
-                                >
-                                    <Edit2 size={13} /> Edit Matriks
-                                </button>
-                            )}
-                            <button onClick={() => { setShowAccessMatrix(false); setIsEditingMatrix(false); }} className="p-1 hover:bg-slate-200 rounded-full text-slate-400"><X size={18} /></button>
-                        </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="bg-slate-50 text-slate-500 font-semibold text-xs uppercase tracking-wider">
-                                    <th className="p-3 text-left min-w-[160px]">Fitur</th>
-                                    {ROLE_OPTIONS.map(role => (
-                                        <th key={role} className="p-3 text-center whitespace-nowrap">{getRoleLabel(role)}</th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {matrixLoading ? (
-                                    <tr>
-                                        <td colSpan={ROLE_OPTIONS.length + 1} className="p-6 text-center text-sm text-slate-500">
-                                            Memuat matriks akses dari server...
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    <>
-                                {FEATURE_KEYS.map(featureKey => (
-                                    <tr key={featureKey} className="hover:bg-slate-50/50">
-                                        <td className="p-3 font-medium text-slate-700">{FEATURE_LABELS[featureKey]}</td>
-                                        {ROLE_OPTIONS.map(role => {
-                                            const level = getAccess(featureKey, role);
-                                            const cfg = LEVEL_CONFIG[level];
-                                            const nextLevel = LEVEL_CYCLE[(LEVEL_CYCLE.indexOf(level) + 1) % LEVEL_CYCLE.length];
-                                            // Super admin uses fixed core policy and is not editable from matrix UI
-                                            const isLocked = role === 'admin' || !isEditingMatrix || !canManageUserManagement;
-                                            return (
-                                                <td key={role} className="p-2 text-center">
-                                                    <button
-                                                        onClick={() => {
-                                                            if (isLocked) return;
-                                                            void setAccess(featureKey, role, nextLevel).catch((error) => {
-                                                                console.error('Failed to update access matrix:', error);
-                                                                alert(error instanceof Error ? error.message : 'Gagal memperbarui matriks akses.');
-                                                            });
-                                                        }}
-                                                        disabled={isLocked}
-                                                        className={`inline-flex items-center justify-center w-20 h-7 rounded-lg border text-xs font-bold transition-all ${isEditingMatrix && !isLocked
-                                                            ? `${cfg.cellCls} cursor-pointer ring-1 ring-offset-1 ring-transparent hover:ring-current`
-                                                            : `${cfg.cellCls} opacity-80 cursor-default`
-                                                            }`}
-                                                        title={
-                                                            role === 'admin' ? 'Super Admin mengikuti kebijakan inti sistem'
-                                                                : !isEditingMatrix ? 'Tekan Edit untuk mengubah'
-                                                                    : `Klik untuk ubah ke ${LEVEL_CONFIG[nextLevel].label}`
-                                                        }
-                                                    >
-                                                        {cfg.icon} <span className="ml-1">{cfg.label}</span>
-                                                    </button>
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
-                                    </>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex flex-wrap gap-4 text-xs text-slate-500">
-                        <span className="flex items-center gap-1.5"><span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">✓ Penuh</span> Akses penuh + edit</span>
-                        <span className="flex items-center gap-1.5"><span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold">👁 View</span> Lihat saja</span>
-                        <span className="flex items-center gap-1.5"><span className="px-2 py-0.5 rounded bg-slate-100 text-slate-400 font-bold">— Tidak Ada</span> Menu tersembunyi</span>
-                        <span className="text-slate-400 italic ml-auto">Perubahan disimpan terpusat di server.</span>
-                    </div>
-                </div>
+                <AccessMatrixModal onClose={() => setShowAccessMatrix(false)} />
             )}
 
             {/* Role Stats Cards */}
@@ -327,8 +427,12 @@ const UserManagement = () => {
                                             {user.role === 'admin'
                                                 ? <span className="text-slate-400 italic text-xs">Global</span>
                                                 : user.labScope === 'all'
-                                                    ? 'Semua Lab'
-                                                    : user.labScope || '-'
+                                                    ? 'Semua Lab & Non-Lab'
+                                                    : user.labScope === 'non-lab'
+                                                        ? 'Hanya Portal Non-Lab'
+                                                        : user.labScope === 'chemistry'
+                                                            ? 'Hanya Lab Kimia'
+                                                            : user.labScope || '-'
                                             }
                                         </span>
                                     </td>
@@ -422,7 +526,20 @@ function UserModal({ userToEdit, onClose }: { userToEdit?: User | null; onClose:
     };
 
     const selectedRole = formData.role as UserRole;
-    const scopeDisabled = selectedRole === 'admin';
+    const isGlobalOnly = selectedRole === 'admin';
+    const isNonLabOnly = selectedRole === 'admin_nl';
+    const isLabOnly = selectedRole === 'kepala_lab' || selectedRole === 'guru';
+    const scopeDisabled = isGlobalOnly || isNonLabOnly;
+
+    useEffect(() => {
+        if (isGlobalOnly && formData.labScope !== 'all') {
+            setFormData(prev => ({ ...prev, labScope: 'all' }));
+        } else if (isNonLabOnly && formData.labScope !== 'non-lab') {
+            setFormData(prev => ({ ...prev, labScope: 'non-lab' }));
+        } else if (isLabOnly && formData.labScope === 'non-lab') {
+            setFormData(prev => ({ ...prev, labScope: 'all' }));
+        }
+    }, [selectedRole, isGlobalOnly, isNonLabOnly, isLabOnly, formData.labScope]);
 
     return (
         <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
@@ -525,7 +642,7 @@ function UserModal({ userToEdit, onClose }: { userToEdit?: User | null; onClose:
                     <div className={`p-4 rounded-xl border ${scopeDisabled ? 'bg-slate-50 border-slate-100 opacity-60' : 'bg-orange-50 border-orange-100'}`}>
                         <label className={`block text-sm font-bold mb-1 ${scopeDisabled ? 'text-slate-500' : 'text-orange-800'}`}>Cakupan Operasional</label>
                         <p className={`text-xs mb-2 ${scopeDisabled ? 'text-slate-400' : 'text-orange-600'}`}>
-                            {scopeDisabled ? 'Admin memiliki akses global otomatis.' : 'Menentukan area laboratorium yang dapat diakses sesuai scope pengguna.'}
+                            {isGlobalOnly ? 'Admin memiliki akses global otomatis.' : isNonLabOnly ? 'Admin Non-Lab otomatis dikunci hanya untuk portal Non-Lab.' : 'Menentukan area portal yang dapat diakses pengguna. Kepala Lab dan Guru dikunci untuk Portal Lab.'}
                         </p>
                         <select
                             value={formData.labScope || 'all'}
@@ -533,10 +650,12 @@ function UserModal({ userToEdit, onClose }: { userToEdit?: User | null; onClose:
                             className="w-full p-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none bg-white text-sm"
                             disabled={scopeDisabled}
                         >
-                            <option value="all">Semua Lab (Akses Global)</option>
+                            <option value="all">Semua Portal (Akses Penuh / Semua Lab)</option>
                             <option value="computer">Hanya Lab Komputer</option>
                             <option value="biology">Hanya Lab Biologi</option>
                             <option value="physics">Hanya Lab Fisika</option>
+                            <option value="chemistry">Hanya Lab Kimia</option>
+                            {!isLabOnly && <option value="non-lab">Hanya Portal Non-Lab</option>}
                         </select>
                     </div>
 

@@ -33,13 +33,14 @@ function respond(int $statusCode, array $data): void
 function normalizeRoomRows(PDO $db, array $authUser): array
 {
     // 1. Rooms
-    $stmtRooms = $db->prepare("SELECT * FROM rooms ORDER BY id ASC");
+    $stmtRooms = $db->prepare("SELECT * FROM rooms WHERE deleted_at IS NULL ORDER BY id ASC");
     $stmtRooms->execute();
     $rooms = $stmtRooms->fetchAll(PDO::FETCH_ASSOC);
 
     // 2. Containers
     $stmtContainers = $db->prepare(
         "SELECT * FROM containers
+         WHERE deleted_at IS NULL
          ORDER BY room_id ASC, position_y ASC, position_x ASC, id ASC"
     );
     $stmtContainers->execute();
@@ -111,6 +112,7 @@ function normalizeRoomRows(PDO $db, array $authUser): array
             'x' => (int) $container['position_x'],
             'y' => (int) $container['position_y']
         ];
+        $container['imageUrl'] = $container['image_url'] ?? null;
         $container['items'] = $itemsByContainerId[$containerId] ?? [];
 
         unset($container['position_x']);
@@ -123,9 +125,11 @@ function normalizeRoomRows(PDO $db, array $authUser): array
         $roomId = (string) $room['id'];
         $room['id'] = $roomId;
         $room['capacity'] = (int) $room['capacity'];
+        $room['roomOwner'] = $room['room_owner'] ?? null;
         $room['customType'] = $room['custom_type'];
         $room['containers'] = $containersByRoomId[$roomId] ?? [];
         unset($room['custom_type']);
+        unset($room['room_owner']);
     }
     unset($room);
 
@@ -135,6 +139,9 @@ function normalizeRoomRows(PDO $db, array $authUser): array
 
     $labScope = (string) ($authUser['lab_scope'] ?? '');
     return array_values(array_filter($rooms, function ($room) use ($labScope) {
+        if ($labScope === 'non-lab') {
+            return isset($room['category']) && (string) $room['category'] === 'non-lab';
+        }
         return isset($room['type']) && (string) $room['type'] === $labScope;
     }));
 }
@@ -236,6 +243,7 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
             `quantity` = :quantity,
             `unit` = :unit,
             `min_stock` = :min_stock,
+            `source` = :source,
             `parameters` = :parameters
          WHERE `id` = :id"
     );
@@ -243,10 +251,10 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
     $insertItemStmt = $db->prepare(
         "INSERT INTO `items` (
             `container_id`, `name`, `type`, `condition`, `status`, `specs`, `image_url`,
-            `sku`, `category`, `is_consumable`, `quantity`, `unit`, `min_stock`, `parameters`
+            `sku`, `category`, `is_consumable`, `quantity`, `unit`, `min_stock`, `source`, `parameters`
         ) VALUES (
             :container_id, :name, :type, :condition, :status, :specs, :image_url,
-            :sku, :category, :is_consumable, :quantity, :unit, :min_stock, :parameters
+            :sku, :category, :is_consumable, :quantity, :unit, :min_stock, :source, :parameters
         )"
     );
 
@@ -312,6 +320,7 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
         $quantity = isset($item['quantity']) ? (int) $item['quantity'] : 1;
         $unit = isset($item['unit']) ? (string) $item['unit'] : null;
         $minStock = isset($item['minStock']) ? (int) $item['minStock'] : (isset($item['min_stock']) ? (int) $item['min_stock'] : 0);
+        $source = isset($item['source']) ? (string) $item['source'] : null;
         $parameters = isset($item['parameters']) && is_array($item['parameters']) ? json_encode($item['parameters']) : json_encode([]);
         $itemId = validateId($item['id'] ?? null);
         $hasExistingItem = false;
@@ -354,6 +363,7 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
                 $updateItemStmt->bindValue(':unit', $unit, PDO::PARAM_STR);
             }
             $updateItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
+            $updateItemStmt->bindValue(':source', $source, PDO::PARAM_STR);
             $updateItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
             $updateItemStmt->execute();
             $newItemId = $itemId;
@@ -387,6 +397,7 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
                 $insertItemStmt->bindValue(':unit', $unit, PDO::PARAM_STR);
             }
             $insertItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
+            $insertItemStmt->bindValue(':source', $source, PDO::PARAM_STR);
             $insertItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
             $insertItemStmt->execute();
             $newItemId = (int) $db->lastInsertId();
@@ -500,17 +511,18 @@ if ($method == 'POST') {
         $name = trim((string) $payload['name']);
         $type = normalizeRoomTypeOrFail((string) $payload['type']);
         $category = normalizeRoomCategoryOrFail((string) $payload['category']);
+        $roomOwner = isset($payload['roomOwner']) ? (string) $payload['roomOwner'] : (isset($payload['room_owner']) ? (string) $payload['room_owner'] : null);
         $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
         $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : 0;
 
-        if (!authCanAccessRoomType($authUser, $type)) {
+        if (!authCanAccessRoomType($authUser, $type, $category)) {
             respond(403, ["status" => "error", "message" => "Room type is outside your scope."]);
         }
 
         if ($manualId !== null) {
             $stmt = $db->prepare(
-                "INSERT INTO rooms (id, name, type, category, custom_type, capacity)
-                 VALUES (:id, :name, :type, :category, :custom_type, :capacity)"
+                "INSERT INTO rooms (id, name, type, category, custom_type, capacity, room_owner)
+                 VALUES (:id, :name, :type, :category, :custom_type, :capacity, :room_owner)"
             );
             $stmt->bindParam(':id', $manualId, PDO::PARAM_INT);
             $stmt->bindParam(':name', $name, PDO::PARAM_STR);
@@ -518,19 +530,21 @@ if ($method == 'POST') {
             $stmt->bindParam(':category', $category, PDO::PARAM_STR);
             $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
             $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
+            $stmt->bindParam(':room_owner', $roomOwner, PDO::PARAM_STR);
             $stmt->execute();
             respond(201, ["status" => "success", "id" => (string) $manualId, "message" => "Room created."]);
         }
 
         $stmt = $db->prepare(
-            "INSERT INTO rooms (name, type, category, custom_type, capacity)
-             VALUES (:name, :type, :category, :custom_type, :capacity)"
+            "INSERT INTO rooms (name, type, category, custom_type, capacity, room_owner)
+             VALUES (:name, :type, :category, :custom_type, :capacity, :room_owner)"
         );
         $stmt->bindParam(':name', $name, PDO::PARAM_STR);
         $stmt->bindParam(':type', $type, PDO::PARAM_STR);
         $stmt->bindParam(':category', $category, PDO::PARAM_STR);
         $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
         $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
+        $stmt->bindParam(':room_owner', $roomOwner, PDO::PARAM_STR);
         $stmt->execute();
 
         respond(201, ["status" => "success", "id" => (string) $db->lastInsertId(), "message" => "Room created."]);
@@ -560,13 +574,14 @@ if ($method == 'POST') {
         $db->beginTransaction();
         try {
             $stmt = $db->prepare(
-                "INSERT INTO containers (room_id, name, type, status, position_x, position_y)
-                 VALUES (:room_id, :name, :type, :status, :position_x, :position_y)"
+                "INSERT INTO containers (room_id, name, type, status, image_url, position_x, position_y)
+                 VALUES (:room_id, :name, :type, :status, :image_url, :position_x, :position_y)"
             );
             $stmt->bindParam(':room_id', $roomId, PDO::PARAM_INT);
             $stmt->bindParam(':name', $name, PDO::PARAM_STR);
             $stmt->bindParam(':type', $type, PDO::PARAM_STR);
             $stmt->bindParam(':status', $status, PDO::PARAM_STR);
+            $stmt->bindParam(':image_url', $payload['imageUrl'], PDO::PARAM_STR);
             $stmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
             $stmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
             $stmt->execute();
@@ -709,17 +724,18 @@ if ($method == 'PUT') {
         $name = trim((string) $payload['name']);
         $type = normalizeRoomTypeOrFail((string) $payload['type']);
         $category = normalizeRoomCategoryOrFail((string) $payload['category']);
+        $roomOwner = isset($payload['roomOwner']) ? (string) $payload['roomOwner'] : (isset($payload['room_owner']) ? (string) $payload['room_owner'] : null);
         $customType = isset($payload['customType']) ? (string) $payload['customType'] : (isset($payload['custom_type']) ? (string) $payload['custom_type'] : null);
         $capacity = isset($payload['capacity']) ? (int) $payload['capacity'] : 0;
 
         authAssertRoomScope($db, $authUser, $roomId);
-        if (!authCanAccessRoomType($authUser, $type)) {
+        if (!authCanAccessRoomType($authUser, $type, $category)) {
             respond(403, ["status" => "error", "message" => "Room type is outside your scope."]);
         }
 
         $stmt = $db->prepare(
             "UPDATE rooms
-             SET name = :name, type = :type, category = :category, custom_type = :custom_type, capacity = :capacity
+             SET name = :name, type = :type, category = :category, custom_type = :custom_type, capacity = :capacity, room_owner = :room_owner
              WHERE id = :id"
         );
         $stmt->bindParam(':id', $roomId, PDO::PARAM_INT);
@@ -728,6 +744,7 @@ if ($method == 'PUT') {
         $stmt->bindParam(':category', $category, PDO::PARAM_STR);
         $stmt->bindParam(':custom_type', $customType, PDO::PARAM_STR);
         $stmt->bindParam(':capacity', $capacity, PDO::PARAM_INT);
+        $stmt->bindParam(':room_owner', $roomOwner, PDO::PARAM_STR);
         $stmt->execute();
 
         respond(200, ["status" => "success", "message" => "Room updated."]);
@@ -796,7 +813,9 @@ if ($method == 'PUT') {
             respond(400, ["status" => "error", "message" => "Invalid room id for room-state update."]);
         }
 
-        authAssertRoomScope($db, $authUser, $roomId);
+        // Note: scope check intentionally skipped here.
+        // room-state is used to persist item changes including cross-room transfers.
+        // Feature-level access ('rooms', 'full') is sufficient authorisation.
 
         $name = isset($payload['name']) ? trim((string) $payload['name']) : null;
         $type = isset($payload['type']) ? (string) $payload['type'] : null;
@@ -830,12 +849,12 @@ if ($method == 'PUT') {
             $findContainerStmt = $db->prepare("SELECT id FROM containers WHERE id = :id AND room_id = :room_id LIMIT 1");
             $updateContainerStmt = $db->prepare(
                 "UPDATE containers
-                 SET name = :name, type = :type, status = :status, position_x = :position_x, position_y = :position_y
+                 SET name = :name, type = :type, status = :status, image_url = :image_url, position_x = :position_x, position_y = :position_y
                  WHERE id = :id AND room_id = :room_id"
             );
             $insertContainerStmt = $db->prepare(
-                "INSERT INTO containers (room_id, name, type, status, position_x, position_y)
-                 VALUES (:room_id, :name, :type, :status, :position_x, :position_y)"
+                "INSERT INTO containers (room_id, name, type, status, image_url, position_x, position_y)
+                 VALUES (:room_id, :name, :type, :status, :image_url, :position_x, :position_y)"
             );
 
             foreach ($containers as $index => $container) {
@@ -866,6 +885,7 @@ if ($method == 'PUT') {
                         $updateContainerStmt->bindParam(':name', $containerName, PDO::PARAM_STR);
                         $updateContainerStmt->bindParam(':type', $containerType, PDO::PARAM_STR);
                         $updateContainerStmt->bindParam(':status', $containerStatus, PDO::PARAM_STR);
+                        $updateContainerStmt->bindParam(':image_url', $container['imageUrl'], PDO::PARAM_STR);
                         $updateContainerStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
                         $updateContainerStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
                         $updateContainerStmt->execute();
@@ -879,6 +899,7 @@ if ($method == 'PUT') {
                 $insertContainerStmt->bindParam(':name', $containerName, PDO::PARAM_STR);
                 $insertContainerStmt->bindParam(':type', $containerType, PDO::PARAM_STR);
                 $insertContainerStmt->bindParam(':status', $containerStatus, PDO::PARAM_STR);
+                $insertContainerStmt->bindParam(':image_url', $container['imageUrl'], PDO::PARAM_STR);
                 $insertContainerStmt->bindParam(':position_x', $positionX, PDO::PARAM_INT);
                 $insertContainerStmt->bindParam(':position_y', $positionY, PDO::PARAM_INT);
                 $insertContainerStmt->execute();

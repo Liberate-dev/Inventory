@@ -1,47 +1,46 @@
-// Types definition
 export type ComponentCondition = 'good' | 'service' | 'damaged' | 'broken';
 export type ComponentStatus = 'available' | 'in_use' | 'maintenance' | 'missing';
 
-export type UserRole = 'admin' | 'kepala_lab' | 'guru' | 'kepala_sekolah' | 'sarpras';
+export type UserRole = 'admin' | 'kepala_lab' | 'guru' | 'kepala_sekolah' | 'sarpras' | 'admin_nl';
 
 export interface User {
     id: string;
-    username: string; // New field
+    username: string;
     email: string;
     name: string;
-    phone?: string; // New field
+    phone?: string;
     role: UserRole;
     avatar?: string;
-    labScope?: 'computer' | 'biology' | 'physics' | 'all';
+    labScope?: 'computer' | 'biology' | 'physics' | 'chemistry' | 'all' | 'non-lab';
 }
 
 export interface ItemLog {
     id: string;
     date: string; // ISO string
-    action: string; // e.g., "Added", "Reported", "Maintenance Accepted"
+    action: string;
     details: string;
 }
 
-// Container Types
 export type ContainerType = 'table' | 'cupboard' | 'shelf';
 
 export interface Item {
     id: string;
     name: string;
     type: string;
-    condition: 'good' | 'service' | 'damaged' | 'broken'; // Physical State
-    status: 'available' | 'in_use' | 'maintenance' | 'missing'; // Availability status
+    condition: ComponentCondition;
+    status: ComponentStatus;
     specs: string;
-    image_layer?: string;
-    logs: ItemLog[]; // History of the item
-    // Extended Metadata (Phase 4)
-    sku?: string; // Unique Inventory Code
-    category?: string; // User-defined category
-    isConsumable?: boolean; // Tracking flag
-    quantity?: number; // Amount/Stock
-    unit?: string; // Pcs, ml, g, etc.
-    minStock?: number; // Reorder point
-    parameters?: { label: string; value: string }[]; // Dynamic specs (Brand, S/N, etc.)
+    imageUrl?: string;
+    image_layer?: string; // Backward compatibility
+    logs: ItemLog[];
+    sku?: string;
+    category?: string;
+    source?: string;
+    isConsumable?: boolean;
+    quantity?: number;
+    unit?: string;
+    minStock?: number;
+    parameters?: { label: string; value: string }[];
 }
 
 export type RequestStatus = 'pending' | 'accepted' | 'denied' | 'completed';
@@ -68,18 +67,20 @@ export interface ServiceRequest {
 export interface Container {
     id: string;
     name: string;
-    type: 'table' | 'cupboard' | 'shelf';
+    type: ContainerType;
     status: 'good' | 'warning' | 'error';
+    imageUrl?: string;
     items: Item[];
-    position: { x: number; y: number }; // Grid coordinates
+    position: { x: number; y: number };
 }
 
 export interface Room {
     id: string;
     name: string;
-    category: 'lab' | 'non-lab';
-    type: 'computer' | 'physics' | 'biology' | 'classroom' | 'office' | 'warehouse' | 'other';
-    customType?: string;
+    category: 'lab' | 'classroom' | 'office' | 'storage' | 'other' | string;
+    type: 'computer' | 'physics' | 'biology' | 'non-lab' | string;
+    roomOwner?: string;
+    customType?: string | null;
     capacity: number;
     containers: Container[];
 }
