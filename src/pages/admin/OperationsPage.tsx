@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useInventory } from '../../context/InventoryContext';
-import { ArrowRightLeft, ClipboardList, CheckCircle, Search, Calendar, User as UserIcon, AlertCircle, Plus, CheckSquare, Square, X, Clock, ArrowRight, FileDown, History } from 'lucide-react';
-import type { Item, ComponentCondition, ComponentStatus, Room, Container, ItemLog } from '../../types';
-import VerificationModal from '../../components/common/VerificationModal';
-import { ItemConditionBadge } from '../../components/common/ItemConditionBadge';
 import { useAuth } from '../../context/AuthContext';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { getItemConditionLabel, getItemConditionOptions } from '../../utils/itemCondition';
+import { useServiceRequests } from '../../context/ServiceRequestContext';
+import { 
+    ArrowRightLeft, ClipboardList, Search, Calendar, 
+    User as UserIcon, Plus, X, CheckCircle, Wrench, 
+    AlertTriangle, History as HistoryIcon 
+} from 'lucide-react';
+import type { ComponentStatus, Room, Container, Item, ItemLog } from '../../types';
+import VerificationModal from '../../components/common/VerificationModal';
+import { getItemStatusLabel, getItemStatusBadgeClasses, getItemStatusOptions } from '../../utils/itemCondition';
 
 const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
     if (typeof rawDetails === 'string') {
@@ -18,65 +20,85 @@ const parseLogDetails = (rawDetails: unknown): Record<string, unknown> => {
             return {};
         }
     }
-
     if (typeof rawDetails === 'object' && rawDetails !== null) {
         return rawDetails as Record<string, unknown>;
     }
-
     return {};
 };
 
-const formatLocationLabel = (value: unknown): string => {
-    const raw = String(value ?? '').trim();
-    if (raw === '') return '-';
-
-    // Hide long numeric tokens that are typically technical IDs/timestamps.
-    const cleaned = raw
-        .replace(/\b\d{6,}\b/g, '')
-        .replace(/\s{2,}/g, ' ')
-        .replace(/\s*-\s*$/, '')
-        .trim();
-
-    return cleaned === '' ? '-' : cleaned;
-};
-
-
-
 export default function OperationsPage() {
-    const { user } = useAuth();
     const { rooms, updateRoom } = useInventory();
+    const { user } = useAuth();
+    const { addRequest } = useServiceRequests();
+
+    // Tab State
     const [activeTab, setActiveTab] = useState<'transfer' | 'usage'>('transfer');
 
+    // Filter scope restricted rooms
     const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all' && user?.labScope !== 'non-lab');
+    const scopedRooms = isScopeRestricted ? rooms.filter(r => r.type === user?.labScope) : rooms;
 
-    // Filter rooms based on scope for dropdowns
-    const scopedRooms = isScopeRestricted
-        ? rooms.filter(r => r.type === user?.labScope)
-        : rooms;
-
-    // Multi-select State
+    // Selection Modal State
     const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
     const [isSelectionModalOpen, setIsSelectionModalOpen] = useState(false);
-    const [searchTerm, setSearchTerm] = useState(''); // Inside modal search
+    const [searchTerm, setSearchTerm] = useState('');
 
+    // UI Feedback
     const [showSuccess, setShowSuccess] = useState<string | null>(null);
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
-    // Verification State
+    // Verification Modal State (for initial submit)
     const [isVerificationOpen, setIsVerificationOpen] = useState(false);
     const [pendingAction, setPendingAction] = useState<'transfer' | 'usage' | null>(null);
-    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
-    // --- Transfer Logic (state must be defined before filteredItems) ---
+    // Arrival/Return Status Check Modal State
+    const [arrivalCheckItem, setArrivalCheckItem] = useState<{ item: Item; room: Room; container: Container; logDetails: Record<string, unknown>; type: 'transfer' | 'usage' } | null>(null);
+    const [arrivalStatus, setArrivalStatus] = useState<ComponentStatus>('good');
+
+    // Service Request Form Modal State (when status = maintenance)
+    const [serviceFormItem, setServiceFormItem] = useState<{ item: Item; room: Room; container: Container; type: 'transfer' | 'usage' } | null>(null);
+    const [serviceDescription, setServiceDescription] = useState('');
+
+    // Transfer UI State
     const [transferForm, setTransferForm] = useState({
         targetRoomId: '',
         targetContainerId: '',
         personResponsible: '',
-        receiver: '', // New PIC
-        date: new Date().toISOString().split('T')[0],
-        conditionBefore: 'good' as ComponentCondition
+        receiver: '',
+        date: new Date().toISOString().split('T')[0]
     });
 
-    // Filter Logic for Modal using scopedRooms
+    // Usage UI State
+    const [usageForm, setUsageForm] = useState({
+        actionType: 'checkout' as 'checkout' | 'checkin',
+        borrower: '',
+        date: new Date().toISOString().split('T')[0],
+        purpose: '',
+        returnStatus: 'good' as ComponentStatus
+    });
+
+    // AUTO-FILL Return Form
+    useEffect(() => {
+        if (activeTab === 'usage' && usageForm.actionType === 'checkin' && selectedItemIds.length === 1) {
+            const selectedItemEntry = selectedItemsData[0];
+            if (selectedItemEntry) {
+                const { item } = selectedItemEntry;
+                if (item.logs) {
+                    const lastCheckoutLog = item.logs.find(l => l.action === 'CHECK_OUT');
+                    if (lastCheckoutLog) {
+                        const details = parseLogDetails(lastCheckoutLog.details);
+                        setUsageForm(prev => ({
+                            ...prev,
+                            borrower: String(details.borrower || ''),
+                            purpose: String(details.purpose || '')
+                        }));
+                    }
+                }
+            }
+        }
+    }, [selectedItemIds, usageForm.actionType, activeTab]);
+
+    // Retrieve full items for selection modal
     const allItems: { item: Item; room: Room; container: Container }[] = [];
     scopedRooms.forEach(room => {
         room.containers?.forEach(container => {
@@ -86,9 +108,13 @@ export default function OperationsPage() {
         });
     });
 
-    const filteredItems = allItems.filter(({ item, room }) => {
-        // Bug fix: exclude items already in the target room (prevent self-transfer)
-        if (activeTab === 'transfer' && transferForm.targetRoomId && room.id === transferForm.targetRoomId) return false;
+    const selectedItemsData = allItems.filter(i => selectedItemIds.includes(i.item.id));
+
+    // LOGIC: Exclude source rooms from target room options
+    const sourceRoomIds = new Set(selectedItemsData.map(({ room }) => room.id));
+    const availableTargetRooms = scopedRooms.filter(r => !sourceRoomIds.has(r.id));
+
+    const filteredItems = allItems.filter(({ item }) => {
         return (
             item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.id.toLowerCase().includes(searchTerm.toLowerCase())
@@ -96,32 +122,13 @@ export default function OperationsPage() {
     });
 
     const toggleItemSelection = (id: string) => {
-        setSelectedItemIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
+        setSelectedItemIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
     };
 
-    const selectedItemsData = allItems.filter(i => selectedItemIds.includes(i.item.id));
-
-
+    // --- TRANSFER LOGIC ---
     const initiateTransfer = (e: React.FormEvent) => {
         e.preventDefault();
-
-        if (selectedItemIds.length === 0) {
-            alert("Pilih minimal satu item terlebih dahulu.");
-            return;
-        }
-
-        if (!transferForm.targetRoomId || !transferForm.targetContainerId) {
-            alert("Pilih tujuan yang valid terlebih dahulu.");
-            return;
-        }
-
-        const targetRoom = rooms.find(r => r.id === transferForm.targetRoomId);
-        const targetContainer = targetRoom?.containers.find(c => c.id === transferForm.targetContainerId);
-
-        if (!targetRoom || !targetContainer) return;
-
+        if (selectedItemIds.length === 0 || !transferForm.targetRoomId) return;
         setPendingAction('transfer');
         setIsVerificationOpen(true);
     };
@@ -132,39 +139,24 @@ export default function OperationsPage() {
 
         if (!targetRoom || !targetContainer) return;
 
-        // Process each item
-        // We need to be careful about state updates in a loop.
-        // Better strategy: Calculate new state for ALL affected rooms and update once or carefully.
-        // Given existing context API, let's try to batch the logic by cloning the rooms array first.
-
         const currentRoomsState = [...rooms];
-
-        // We need a helper to find room/container index in the LOCAL currentRoomsState
         const updateLocalState = (updatedRoom: Room) => {
             const idx = currentRoomsState.findIndex(r => r.id === updatedRoom.id);
             if (idx !== -1) currentRoomsState[idx] = updatedRoom;
         };
 
         selectedItemsData.forEach(({ item, room: sourceRoom, container: sourceContainer }) => {
-            // Re-fetch objects from currentRoomsState to ensure we have latest version during the loop
             const currentSourceRoom = currentRoomsState.find(r => r.id === sourceRoom.id);
             const currentTargetRoom = currentRoomsState.find(r => r.id === targetRoom.id);
-            if (!currentSourceRoom || !currentTargetRoom) {
-                return;
-            }
+            if (!currentSourceRoom || !currentTargetRoom) return;
 
             const currentSourceContainer = currentSourceRoom.containers.find(c => c.id === sourceContainer.id);
             const currentTargetContainer = currentTargetRoom.containers.find(c => c.id === targetContainer.id);
-            if (!currentSourceContainer || !currentTargetContainer) {
-                return;
-            }
+            if (!currentSourceContainer || !currentTargetContainer) return;
 
             const currentItem = currentSourceContainer.items.find(i => i.id === item.id);
-            if (!currentItem) {
-                return;
-            }
+            if (!currentItem) return;
 
-            // 1. Create Log
             const newLog: ItemLog = {
                 id: `log-${Date.now()}-${item.id}`,
                 date: new Date().toISOString(),
@@ -173,19 +165,19 @@ export default function OperationsPage() {
                     from: `${currentSourceRoom.name} - ${currentSourceContainer.name}`,
                     to: `${currentTargetRoom.name} - ${currentTargetContainer.name}`,
                     mover: transferForm.personResponsible,
-                    receiver: transferForm.receiver, // New PIC
-                    verifiedBy: verifierInfo, // Added verification
-                    condition: transferForm.conditionBefore,
-                    verificationStatus: 'pending' // Pending confirmation
+                    receiver: transferForm.receiver,
+                    verifiedBy: verifierInfo,
+                    statusAtMover: currentItem.status,
+                    verificationStatus: 'pending'
                 })
             };
 
-            const updatedItem = {
+            const updatedItem: Item = {
                 ...currentItem,
                 logs: [newLog, ...(currentItem.logs || [])]
             };
 
-            // 2. Remove from Source
+            // Remove from Source
             const updatedSourceContainerObj = {
                 ...currentSourceContainer,
                 items: currentSourceContainer.items.filter(i => i.id !== item.id)
@@ -196,16 +188,10 @@ export default function OperationsPage() {
             };
             updateLocalState(updatedSourceRoomObj);
 
-            // 3. Add to Target
-            // Re-fetch target room from state (it might be same as source room!)
+            // Add to Target
             const refreshedTargetRoom = currentRoomsState.find(r => r.id === targetRoom.id);
-            if (!refreshedTargetRoom) {
-                return;
-            }
-            const refreshedTargetContainer = refreshedTargetRoom.containers.find(c => c.id === targetContainer.id);
-            if (!refreshedTargetContainer) {
-                return;
-            }
+            const refreshedTargetContainer = refreshedTargetRoom?.containers.find(c => c.id === targetContainer.id);
+            if (!refreshedTargetRoom || !refreshedTargetContainer) return;
 
             const updatedTargetContainerObj = {
                 ...refreshedTargetContainer,
@@ -219,309 +205,300 @@ export default function OperationsPage() {
         });
 
         try {
-            // Persist target first, then source rooms, to preserve moved item IDs.
-            const sourceRoomIds = Array.from(new Set(selectedItemsData.map(({ room }) => room.id)));
-            const prioritizedRoomIds = [
-                targetRoom.id,
-                ...sourceRoomIds.filter((roomId) => roomId !== targetRoom.id)
-            ];
-
-            for (const roomId of prioritizedRoomIds) {
-                const roomState = currentRoomsState.find((room) => room.id === roomId);
-                if (!roomState) continue;
-                await updateRoom(roomState);
+            const roomsToUpdate = [targetRoom.id, ...Array.from(sourceRoomIds)];
+            for (const roomId of roomsToUpdate) {
+                const roomState = currentRoomsState.find((r) => r.id === roomId);
+                if (roomState) await updateRoom(roomState);
             }
-            setShowSuccess(`Berhasil memindahkan ${selectedItemIds.length} item ke ${targetRoom.name}`);
-            setTimeout(() => setShowSuccess(null), 3000);
+            setShowSuccess(`Berhasil memindahkan ${selectedItemIds.length} barang ke ${targetRoom.name} (Status: Menunggu Konfirmasi)`);
+            setTimeout(() => setShowSuccess(null), 4000);
+
             setSelectedItemIds([]);
-            setSearchTerm('');
+            setTransferForm(prev => ({ ...prev, targetRoomId: '', targetContainerId: '', personResponsible: '', receiver: '' }));
         } catch (error) {
             console.error('Failed to persist transfer:', error);
-            alert(error instanceof Error ? error.message : 'Gagal menyimpan transfer ke server.');
+            alert('Gagal menyimpan transfer ke server.');
         }
     };
 
-    // --- Usage Logic ---
-    const [usageForm, setUsageForm] = useState({
-        actionType: 'checkout' as 'checkout' | 'checkin',
-        borrower: '',
-        date: new Date().toISOString().split('T')[0],
-        purpose: '',
-        conditionCheck: 'good' as ComponentCondition
-    });
-
-    // State to track quantity for consumable items
-    const [usageQuantities, setUsageQuantities] = useState<Record<string, number>>({});
-
+    // --- USAGE LOGIC ---
     const initiateUsage = (e: React.FormEvent) => {
         e.preventDefault();
-
-        if (selectedItemIds.length === 0) {
-            alert("Please select at least one item.");
-            return;
-        }
-
-        // Validate quantities for consumables during checkout
-        if (usageForm.actionType === 'checkout') {
-            const overdrawnItems = selectedItemsData.filter(({ item }) => {
-                if (!item.isConsumable) return false;
-                const reqQty = usageQuantities[item.id] || 1;
-                return reqQty > (item.quantity || 0);
-            });
-
-            if (overdrawnItems.length > 0) {
-                alert(`Stok tidak mencukupi untuk:\n${overdrawnItems.map(i => i.item.name).join(', ')}`);
-                return;
-            }
-        }
-
-        // Validation Batch
-        const invalidItems = selectedItemsData.filter(({ item }) => {
-            if (usageForm.actionType === 'checkout') return item.status !== 'available';
-            if (usageForm.actionType === 'checkin') return item.status !== 'in_use';
-            return false;
-        });
-
-        if (invalidItems.length > 0) {
-            alert(`Beberapa item tidak dapat diproses:\n${invalidItems.map(i => i.item.name).join(', ')}\n\nPeriksa status item tersebut.`);
-            return;
-        }
-
+        if (selectedItemIds.length === 0) return;
         setPendingAction('usage');
         setIsVerificationOpen(true);
     };
 
     const executeUsage = async (verifierInfo: string) => {
         const currentRoomsState = [...rooms];
-        const updateLocalState = (updatedRoom: Room) => {
-            const idx = currentRoomsState.findIndex(r => r.id === updatedRoom.id);
-            if (idx !== -1) currentRoomsState[idx] = updatedRoom;
-        };
 
-        selectedItemsData.forEach(({ item, room: itemRoom, container: itemContainer }) => {
-            const currentRoom = currentRoomsState.find(r => r.id === itemRoom.id);
-            if (!currentRoom) {
-                return;
-            }
-            const currentContainer = currentRoom.containers.find(c => c.id === itemContainer.id);
-            if (!currentContainer) {
-                return;
-            }
+        for (const { item, room, container } of selectedItemsData) {
+            const currentRoom = currentRoomsState.find(r => r.id === room.id);
+            const currentContainer = currentRoom?.containers.find(c => c.id === container.id);
+            if (!currentRoom || !currentContainer) continue;
+
             const currentItem = currentContainer.items.find(i => i.id === item.id);
-            if (!currentItem) {
-                return;
-            }
+            if (!currentItem) continue;
 
-            const isConsumable = currentItem.isConsumable;
-            const quantityProcessed = isConsumable ? (usageQuantities[currentItem.id] || 1) : undefined;
+            const isCheckout = usageForm.actionType === 'checkout';
+            const actionLabel = isCheckout ? 'CHECK_OUT' : 'RETURNED';
 
-            // 1. Create Log
             const newLog: ItemLog = {
                 id: `log-${Date.now()}-${item.id}`,
                 date: new Date().toISOString(),
-                action: usageForm.actionType === 'checkout' ? 'CHECK_OUT' : 'RETURNED',
+                action: actionLabel,
                 details: JSON.stringify({
                     borrower: usageForm.borrower,
-                    returner: usageForm.actionType === 'checkin' ? usageForm.borrower : undefined,
                     purpose: usageForm.purpose,
                     verifiedBy: verifierInfo,
-                    condition: usageForm.conditionCheck,
-                    quantityProcessed // Audit trail
+                    statusAtAction: isCheckout ? currentItem.status : usageForm.returnStatus,
+                    returnedBy: !isCheckout ? usageForm.borrower : undefined
                 })
             };
 
-            // 2. Update Item
-            let updatedItem;
-            if (isConsumable) {
-                const newQuantity = usageForm.actionType === 'checkout'
-                    ? Math.max(0, (currentItem.quantity || 0) - (quantityProcessed as number))
-                    : (currentItem.quantity || 0) + (quantityProcessed as number);
+            const updatedItem: Item = {
+                ...currentItem,
+                status: isCheckout ? 'in_use' : usageForm.returnStatus,
+                logs: [newLog, ...(currentItem.logs || [])]
+            };
 
-                updatedItem = {
-                    ...currentItem,
-                    quantity: newQuantity,
-                    // Condition check doesn't really apply to consumables usually, but keeping it inline
-                    condition: usageForm.actionType === 'checkin' ? usageForm.conditionCheck : currentItem.condition,
-                    logs: [newLog, ...(currentItem.logs || [])]
-                };
-            } else {
-                updatedItem = {
-                    ...currentItem,
-                    status: (usageForm.actionType === 'checkout' ? 'in_use' : 'available') as ComponentStatus,
-                    condition: usageForm.actionType === 'checkin' ? usageForm.conditionCheck : currentItem.condition,
-                    logs: [newLog, ...(currentItem.logs || [])]
-                };
-            }
-
-            // 3. Save
-            const updatedContainerObj = {
+            const updatedContainer2 = {
                 ...currentContainer,
                 items: currentContainer.items.map(i => i.id === item.id ? updatedItem : i)
             };
-            const updatedRoomObj = {
+            const updatedRoom2 = {
                 ...currentRoom,
-                containers: currentRoom.containers.map(c => c.id === itemContainer.id ? updatedContainerObj : c)
+                containers: currentRoom.containers.map(c => c.id === container.id ? updatedContainer2 : c)
             };
-            updateLocalState(updatedRoomObj);
-        });
+
+            const roomIdx = currentRoomsState.findIndex(r => r.id === room.id);
+            currentRoomsState[roomIdx] = updatedRoom2;
+        }
 
         try {
-            const affectedRoomIds = Array.from(new Set(selectedItemsData.map(({ room }) => room.id)));
+            const affectedRoomIds = Array.from(new Set(selectedItemsData.map(s => s.room.id)));
             for (const roomId of affectedRoomIds) {
-                const roomState = currentRoomsState.find((room) => room.id === roomId);
-                if (!roomState) continue;
-                await updateRoom(roomState);
+                const roomState = currentRoomsState.find(r => r.id === roomId);
+                if (roomState) await updateRoom(roomState);
             }
-            setShowSuccess(`Berhasil ${usageForm.actionType === 'checkout' ? 'meminjamkan' : 'mengembalikan'} ${selectedItemIds.length} item`);
-            setTimeout(() => setShowSuccess(null), 3000);
+            setShowSuccess(`Berhasil mencatat ${usageForm.actionType === 'checkout' ? 'peminjaman' : 'pengembalian'} ${selectedItemIds.length} item.`);
+            setTimeout(() => setShowSuccess(null), 4000);
+
+            // Special case: if single item returned as maintenance, open service form
+            if (usageForm.actionType === 'checkin' && usageForm.returnStatus === 'maintenance' && selectedItemIds.length === 1) {
+                const { item, room, container } = selectedItemsData[0];
+                setServiceFormItem({ item, room, container, type: 'usage' });
+            }
+
             setSelectedItemIds([]);
-            setSearchTerm('');
-        } catch (error) {
-            console.error('Failed to persist usage operation:', error);
-            alert(error instanceof Error ? error.message : 'Gagal menyimpan operasi penggunaan ke server.');
+            setUsageForm(prev => ({ ...prev, borrower: '', purpose: '', returnStatus: 'good' }));
+        } catch (e) {
+            console.error(e);
+            alert('Gagal menyimpan data penggunaan.');
         }
     };
 
-    // --- Export PDF Logic ---
-    const handleExportPDF = () => {
-        const doc = new jsPDF('landscape', 'mm', 'a4');
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
-        const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    // --- ARRIVAL/RETURN STATUS CHECK ---
+    const openArrivalCheck = (ctx: { item: Item; room: Room; container: Container; logDetails: Record<string, unknown> }, type: 'transfer' | 'usage') => {
+        setArrivalCheckItem({ ...ctx, type });
+        setArrivalStatus('good');
+    };
 
-        // Header
-        doc.setFontSize(18);
-        doc.setFont('helvetica', 'bold');
-        doc.text('LAPORAN OPERASIONAL', pageWidth / 2, 18, { align: 'center' });
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'normal');
-        doc.text('SMPK SANTA MARIA 2 MALANG — Portal Inventory', pageWidth / 2, 25, { align: 'center' });
-        doc.setFontSize(9);
-        doc.setTextColor(120);
-        doc.text(`Dicetak: ${dateStr}, ${timeStr}`, pageWidth / 2, 31, { align: 'center' });
-        doc.setTextColor(0);
+    const executeArrivalCheck = async () => {
+        if (!arrivalCheckItem) return;
+        const { item, room, container, type } = arrivalCheckItem;
 
-        // Separator Line
-        doc.setDrawColor(0, 0, 128);
-        doc.setLineWidth(0.5);
-        doc.line(14, 34, pageWidth - 14, 34);
+        if (arrivalStatus === 'maintenance') {
+            setServiceFormItem({ item, room, container, type });
+            setServiceDescription('');
+            setArrivalCheckItem(null);
+            return;
+        }
 
-        let startY = 40;
+        const currentRoom = rooms.find(r => r.id === room.id);
+        const currentContainer = currentRoom?.containers.find(c => c.id === container.id);
+        const currentItem = currentContainer?.items.find(i => i.id === item.id);
+        if (!currentRoom || !currentContainer || !currentItem) return;
 
-        // Collect all operations logs using scopedRooms instead of global rooms
-        const allLogs: { item: Item; room: Room; container: Container; log: ItemLog }[] = [];
-        scopedRooms.forEach(room => {
-            room.containers?.forEach(container => {
-                container.items?.forEach(item => {
-                    item.logs?.forEach(log => {
-                        if (['TRANSFER', 'CHECK_OUT', 'RETURNED'].includes(log.action)) {
-                            allLogs.push({ item, room, container, log });
-                        }
-                    });
-                });
-            });
+        const newStatus = arrivalStatus; // good or broken
+        const actionLabel = type === 'transfer' ? 'VERIFIED_ARRIVAL' : 'VERIFIED_RETURN';
+        
+        const newLog: ItemLog = {
+            id: `log-${Date.now()}-${item.id}`,
+            date: new Date().toISOString(),
+            action: actionLabel,
+            details: JSON.stringify({
+                note: newStatus === 'broken' ? 'Barang tiba/kembali dalam kondisi rusak.' : 'Barang tiba/kembali dalam kondisi baik.',
+                statusAtArrival: newStatus
+            })
+        };
+
+        const updatedLogs = currentItem.logs.map(log => {
+            if (log.action === (type === 'transfer' ? 'TRANSFER' : 'CHECK_OUT')) {
+                const details = parseLogDetails(log.details);
+                if (type === 'transfer' && details.verificationStatus === 'pending') {
+                    return { ...log, details: JSON.stringify({ ...details, verificationStatus: 'completed' }) };
+                }
+            }
+            return log;
         });
 
-        // Sort by date descending
-        allLogs.sort((a, b) => new Date(b.log.date).getTime() - new Date(a.log.date).getTime());
+        const updatedItem: Item = {
+            ...currentItem,
+            status: newStatus,
+            logs: [newLog, ...updatedLogs]
+        };
 
-        const transferLogs = allLogs.filter(l => l.log.action === 'TRANSFER');
-        const usageLogs = allLogs.filter(l => l.log.action === 'CHECK_OUT' || l.log.action === 'RETURNED');
+        const updatedContainer2 = {
+            ...currentContainer,
+            items: currentContainer.items.map(i => i.id === item.id ? updatedItem : i)
+        };
+        const updatedRoom2 = {
+            ...currentRoom,
+            containers: currentRoom.containers.map(c => c.id === container.id ? updatedContainer2 : c)
+        };
 
-        // --- TRANSFER TABLE ---
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Riwayat Transfer Aset', 14, startY);
-        startY += 2;
+        try {
+            await updateRoom(updatedRoom2);
+            setShowSuccess(`Verifikasi ${item.name} berhasil.`);
+            setTimeout(() => setShowSuccess(null), 4000);
+        } catch (e) {
+            console.error(e);
+            alert('Gagal menyimpan verifikasi.');
+        }
+        setArrivalCheckItem(null);
+    };
 
-        if (transferLogs.length > 0) {
-            autoTable(doc, {
-                startY: startY,
-                head: [['No', 'Tanggal', 'Nama Aset', 'Dari', 'Ke', 'Pemindah', 'Penerima', 'Kondisi', 'Status']],
-                body: transferLogs.map((entry, idx) => {
-                    const d = parseLogDetails(entry.log.details);
-                    return [
-                        String(idx + 1),
-                        new Date(entry.log.date).toLocaleDateString('id-ID'),
-                        entry.item.name,
-                        formatLocationLabel(d.from),
-                        formatLocationLabel(d.to),
-                        String(d.mover ?? '-'),
-                        String(d.receiver ?? '-'),
-                        String(d.condition ?? '-'),
-                        String(d.verificationStatus ?? '-').toUpperCase(),
-                    ];
-                }),
-                styles: { fontSize: 8, cellPadding: 2 },
-                headStyles: { fillColor: [0, 0, 128], textColor: 255, fontStyle: 'bold' },
-                alternateRowStyles: { fillColor: [245, 247, 250] },
-                margin: { left: 14, right: 14 },
+    // --- SERVICE REQUEST SUBMISSION (status = maintenance) ---
+    const submitServiceRequest = async () => {
+        if (!serviceFormItem || !serviceDescription.trim()) return;
+        const { item, room, container, type } = serviceFormItem;
+
+        const currentRoom = rooms.find(r => r.id === room.id);
+        const currentContainer = currentRoom?.containers.find(c => c.id === container.id);
+        const currentItem = currentContainer?.items.find(i => i.id === item.id);
+        if (!currentRoom || !currentContainer || !currentItem) return;
+
+        try {
+            await addRequest({
+                componentId: item.id,
+                componentName: item.name,
+                stationId: container.id,
+                stationName: container.name,
+                roomId: room.id,
+                roomName: room.name,
+                description: serviceDescription.trim(),
+                requesterName: user?.name || 'Unknown User',
+                componentSku: item.sku,
+                componentCategory: item.category,
             });
-            startY = (doc as any).lastAutoTable.finalY + 10;
-        } else {
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'italic');
-            doc.text('Belum ada riwayat transfer.', 14, startY + 6);
-            startY += 14;
-        }
 
-        // --- USAGE TABLE ---
-        // Check if we need a new page
-        if (startY > doc.internal.pageSize.getHeight() - 40) {
-            doc.addPage();
-            startY = 18;
-        }
+            const arrivalLog: ItemLog = {
+                id: `log-${Date.now()}-${item.id}`,
+                date: new Date().toISOString(),
+                action: type === 'transfer' ? 'VERIFIED_ARRIVAL' : 'VERIFIED_RETURN',
+                details: JSON.stringify({
+                    note: 'Barang tiba/kembali dalam kondisi perlu service. Permintaan layanan dibuat.',
+                    statusAtArrival: 'maintenance'
+                })
+            };
 
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Riwayat Penggunaan Aset', 14, startY);
-        startY += 2;
+            const maintenanceLog: ItemLog = {
+                id: `log-${Date.now()}-maint-${item.id}`,
+                date: new Date().toISOString(),
+                action: 'MAINTENANCE_REQUESTED',
+                details: JSON.stringify({
+                    description: serviceDescription.trim()
+                })
+            };
 
-        if (usageLogs.length > 0) {
-            autoTable(doc, {
-                startY: startY,
-                head: [['No', 'Tanggal', 'Aksi', 'Nama Aset', 'Ruangan', 'Peminjam', 'Keperluan', 'Kondisi']],
-                body: usageLogs.map((entry, idx) => {
-                    const d = parseLogDetails(entry.log.details);
-                    return [
-                        String(idx + 1),
-                        new Date(entry.log.date).toLocaleDateString('id-ID'),
-                        entry.log.action === 'CHECK_OUT' ? 'Pinjam' : 'Kembali',
-                        entry.item.name + (d.quantityProcessed ? ` (Qty: ${d.quantityProcessed})` : ''),
-                        entry.room.name,
-                        String(d.borrower ?? '-'),
-                        String(d.purpose ?? '-'),
-                        String(d.condition ?? '-'),
-                    ];
-                }),
-                styles: { fontSize: 8, cellPadding: 2 },
-                headStyles: { fillColor: [0, 0, 128], textColor: 255, fontStyle: 'bold' },
-                alternateRowStyles: { fillColor: [245, 247, 250] },
-                margin: { left: 14, right: 14 },
+            const updatedLogs = currentItem.logs.map(log => {
+                const details = parseLogDetails(log.details);
+                if (log.action === (type === 'transfer' ? 'TRANSFER' : 'CHECK_OUT') && details.verificationStatus === 'pending') {
+                    return { ...log, details: JSON.stringify({ ...details, verificationStatus: 'completed' }) };
+                }
+                return log;
             });
-        } else {
-            doc.setFontSize(9);
-            doc.setFont('helvetica', 'italic');
-            doc.text('Belum ada riwayat penggunaan.', 14, startY + 6);
+
+            const updatedItem: Item = {
+                ...currentItem,
+                status: 'maintenance',
+                logs: [maintenanceLog, arrivalLog, ...updatedLogs]
+            };
+
+            const updatedContainer2 = {
+                ...currentContainer,
+                items: currentContainer.items.map(i => i.id === item.id ? updatedItem : i)
+            };
+            const updatedRoom2 = {
+                ...currentRoom,
+                containers: currentRoom.containers.map(c => c.id === container.id ? updatedContainer2 : c)
+            };
+
+            await updateRoom(updatedRoom2);
+            setShowSuccess(`Permintaan layanan untuk ${item.name} berhasil dikirim ke Sarpras.`);
+            setTimeout(() => setShowSuccess(null), 4000);
+        } catch (e) {
+            console.error(e);
+            alert(e instanceof Error ? e.message : 'Gagal mengirim permintaan layanan.');
         }
 
-        // Footer on all pages
-        const totalPages = doc.getNumberOfPages();
-        for (let i = 1; i <= totalPages; i++) {
-            doc.setPage(i);
-            doc.setFontSize(8);
-            doc.setTextColor(150);
-            doc.text(`Halaman ${i} dari ${totalPages}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 8, { align: 'center' });
-            doc.text('Portal Inventory — SMPK Santa Maria 2 Malang', 14, doc.internal.pageSize.getHeight() - 8);
-        }
+        setServiceFormItem(null);
+        setServiceDescription('');
+    };
 
-        doc.save(`Laporan_Operasional_${now.toISOString().slice(0, 10)}.pdf`);
+    // Find Items For Right Panel Categories
+    const inUseItems: { item: Item; room: Room; container: Container }[] = [];
+    const pendingItems: { item: Item; room: Room; container: Container; logDetails: Record<string, unknown> }[] = [];
+
+    scopedRooms.forEach(room => {
+        room.containers?.forEach(container => {
+            container.items?.forEach(item => {
+                // Category 1: In Use (Borrow/Usage)
+                if (item.status === 'in_use') {
+                    inUseItems.push({ item, room, container });
+                }
+
+                // Category 2: Pending Transfer
+                if (item.logs && item.logs.length > 0) {
+                    const latestTransferLog = item.logs.find(l => l.action === 'TRANSFER');
+                    if (latestTransferLog) {
+                        const details = parseLogDetails(latestTransferLog.details);
+                        if (details.verificationStatus === 'pending') {
+                            pendingItems.push({ item, room, container, logDetails: details });
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    // Aggregated logs for history modal
+    const allLogs: { item: Item; log: ItemLog }[] = [];
+    rooms.forEach(room => {
+        room.containers?.forEach(container => {
+            container.items?.forEach(item => {
+                if (item.logs) {
+                    item.logs.forEach(log => {
+                        allLogs.push({ item, log });
+                    });
+                }
+            });
+        });
+    });
+    const sortedLogs = allLogs.sort((a, b) => new Date(b.log.date).getTime() - new Date(a.log.date).getTime()).slice(0, 50);
+
+    const handleVerificationComplete = (verifierStr: string) => {
+        if (pendingAction === 'transfer') {
+            executeTransfer(verifierStr);
+        } else if (pendingAction === 'usage') {
+            executeUsage(verifierStr);
+        }
+        setPendingAction(null);
     };
 
     return (
-        <div className="max-w-7xl mx-auto space-y-8">
-
+        <div className="max-w-7xl mx-auto space-y-8 p-6">
             {showSuccess && (
                 <div className="fixed top-24 right-8 bg-emerald-500 text-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-right z-50">
                     <CheckCircle className="h-6 w-6" />
@@ -532,149 +509,55 @@ export default function OperationsPage() {
                 </div>
             )}
 
-            {/* Page Header with Export Button */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* Header */}
+            <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">Operasional</h2>
                     <p className="text-slate-500 text-sm">Transfer aset, pencatatan penggunaan, dan verifikasi.</p>
                 </div>
-                <div className="flex gap-3">
-                    <button
-                        onClick={() => setIsHistoryOpen(true)}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold shadow-sm hover:bg-slate-50 transition-all text-sm"
-                    >
-                        <History size={18} />
-                        Riwayat Operasional
-                    </button>
-                    <button
-                        onClick={handleExportPDF}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#000080] text-white rounded-xl font-bold shadow-md shadow-blue-900/10 hover:bg-[#000060] transition-all text-sm"
-                    >
-                        <FileDown size={18} />
-                        Export PDF
-                    </button>
-                </div>
+                <button 
+                    onClick={() => setIsHistoryModalOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold text-sm hover:bg-slate-50 transition-all shadow-sm hover:shadow-md"
+                >
+                    <HistoryIcon size={18} className="text-indigo-600" />
+                    Riwayat Operasional
+                </button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Col: Operation Form */}
+                {/* Kolom Kiri: Form Utama */}
                 <div className="lg:col-span-2 space-y-6">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                        {/* Header Tabs */}
+
+                        {/* Tabs */}
                         <div className="flex border-b border-slate-100 bg-slate-50/50">
                             <button
-                                onClick={() => setActiveTab('transfer')}
+                                onClick={() => { setActiveTab('transfer'); setSelectedItemIds([]); }}
                                 className={`flex-1 py-4 text-sm font-bold transition-all relative ${activeTab === 'transfer' ? 'text-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                             >
                                 <div className="flex items-center justify-center gap-2">
-                                    <ArrowRightLeft size={18} /> Transfer Aset
+                                    <ArrowRightLeft size={18} /> Pemindahan Barang
                                 </div>
                                 {activeTab === 'transfer' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
                             </button>
                             <button
-                                onClick={() => setActiveTab('usage')}
+                                onClick={() => { setActiveTab('usage'); setSelectedItemIds([]); }}
                                 className={`flex-1 py-4 text-sm font-bold transition-all relative ${activeTab === 'usage' ? 'text-indigo-600 bg-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
                             >
                                 <div className="flex items-center justify-center gap-2">
-                                    <ClipboardList size={18} /> Catat Penggunaan
+                                    <ClipboardList size={18} /> Penggunaan/Pengembalian Barang
                                 </div>
                                 {activeTab === 'usage' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-indigo-600" />}
                             </button>
                         </div>
 
                         <div className="p-8">
+                            {/* --- TAB PEMINDAHAN BARANG --- */}
                             {activeTab === 'transfer' ? (
                                 <form onSubmit={initiateTransfer} className="space-y-8">
-                                    {/* logistics */}
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tanggal</label>
-                                            <div className="relative">
-                                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                <input
-                                                    type="date"
-                                                    required
-                                                    value={transferForm.date}
-                                                    onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })}
-                                                    className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pemindah</label>
-                                            <div className="relative">
-                                                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={transferForm.personResponsible}
-                                                    onChange={(e) => setTransferForm({ ...transferForm, personResponsible: e.target.value })}
-                                                    className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
-                                                    placeholder="Nama Penanggung Jawab"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Destination */}
-                                    <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-4">
-                                        <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
-                                            <ArrowRightLeft size={16} /> Detail Tujuan
-                                        </h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="space-y-1.5">
-                                                <label className="text-xs font-semibold text-indigo-700">Ruangan Tujuan</label>
-                                                <select
-                                                    required
-                                                    value={transferForm.targetRoomId}
-                                                    onChange={(e) => setTransferForm({ ...transferForm, targetRoomId: e.target.value, targetContainerId: '' })}
-                                                    className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                                >
-                                                    <option value="">Pilih Ruangan</option>
-                                                    {scopedRooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="space-y-1.5">
-                                                <label className="text-xs font-semibold text-indigo-700">Kontainer (Opsional)</label>
-                                                <select
-                                                    disabled={!transferForm.targetRoomId}
-                                                    value={transferForm.targetContainerId}
-                                                    onChange={(e) => setTransferForm({ ...transferForm, targetContainerId: e.target.value })}
-                                                    className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50 text-sm"
-                                                >
-                                                    <option value="">Pilih Kontainer</option>
-                                                    {scopedRooms.find(r => r.id === transferForm.targetRoomId)?.containers.map(c => (
-                                                        <option key={c.id} value={c.id}>{c.name}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <div className="col-span-2 space-y-1.5">
-                                                <label className="text-xs font-semibold text-indigo-700">Penerima / PIC Baru</label>
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={transferForm.receiver}
-                                                    onChange={(e) => setTransferForm({ ...transferForm, receiver: e.target.value })}
-                                                    className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                                    placeholder="Nama penerima barang"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Condition & Items */}
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-end border-b border-slate-100 pb-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Aset yang Dipindahkan</label>
-                                            {selectedItemIds.length > 0 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsSelectionModalOpen(true)}
-                                                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800"
-                                                >
-                                                    + Add More
-                                                </button>
-                                            )}
+                                            <h3 className="text-sm font-bold text-slate-800">1. Barang yang Dipindahkan</h3>
                                         </div>
 
                                         {selectedItemIds.length > 0 ? (
@@ -682,209 +565,189 @@ export default function OperationsPage() {
                                                 <div className="flex flex-wrap gap-2">
                                                     {selectedItemsData.map(({ item }) => (
                                                         <div key={item.id} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 font-medium group transition-all hover:border-red-200 hover:bg-red-50">
-                                                            {item.name} - {getItemConditionLabel(item.condition)}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => toggleItemSelection(item.id)}
-                                                                className="text-slate-400 group-hover:text-red-500 transition-colors"
-                                                            >
+                                                            {item.name}
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase ${getItemStatusBadgeClasses(item.status)}`}>
+                                                                {getItemStatusLabel(item.status)}
+                                                            </span>
+                                                            <button type="button" onClick={() => toggleItemSelection(item.id)} className="text-slate-400 group-hover:text-red-500 transition-colors">
                                                                 <X size={14} />
                                                             </button>
                                                         </div>
                                                     ))}
                                                 </div>
-                                                <div className="flex items-center gap-4 pt-2">
-                                                    <div className="flex-1 space-y-1">
-                                                        <label className="text-xs font-semibold text-slate-500">Cek Kondisi (Sebelum Transfer)</label>
-                                                        <select
-                                                            value={transferForm.conditionBefore}
-                                                            onChange={(e) => setTransferForm({ ...transferForm, conditionBefore: e.target.value as ComponentCondition })}
-                                                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                                                        >
-                                                            {getItemConditionOptions().map((option) => (
-                                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                </div>
+                                                <button type="button" onClick={() => setIsSelectionModalOpen(true)} className="inline-flex py-2 px-4 border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm font-bold items-center gap-2 transition-colors">
+                                                    <Plus size={16} /> Ubah Pilihan Barang
+                                                </button>
                                             </div>
                                         ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => setIsSelectionModalOpen(true)}
-                                                className="w-full py-8 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/50 transition-all gap-2 group"
-                                            >
-                                                <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-indigo-100/50 flex items-center justify-center transition-colors">
+                                            <button type="button" onClick={() => setIsSelectionModalOpen(true)} className="w-full py-8 border-2 border-dashed border-indigo-200 rounded-xl flex flex-col items-center justify-center text-indigo-500 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all gap-2 group cursor-pointer">
+                                                <div className="w-10 h-10 rounded-full bg-indigo-50 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">
                                                     <Plus size={20} />
                                                 </div>
-                                                <span className="font-medium text-sm">Pilih Item yang Dipindahkan</span>
+                                                <span className="font-bold text-sm">Pilih Barang yang Akan Dipindah</span>
                                             </button>
                                         )}
+                                    </div>
+
+                                    {/* Form Detail (disabled until items selected) */}
+                                    <div className={`space-y-8 transition-opacity duration-300 ${selectedItemIds.length === 0 ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tanggal</label>
+                                                <div className="relative">
+                                                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                                    <input type="date" required value={transferForm.date} onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })} className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700" />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pemindah</label>
+                                                <div className="relative">
+                                                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                                    <input type="text" required value={transferForm.personResponsible} onChange={(e) => setTransferForm({ ...transferForm, personResponsible: e.target.value })} className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700" placeholder="Nama Penanggung Jawab" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-5 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-4">
+                                            <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+                                                <ArrowRightLeft size={16} /> Detail Tujuan
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs font-semibold text-indigo-700">Ruangan Tujuan</label>
+                                                    <select required value={transferForm.targetRoomId} onChange={(e) => setTransferForm({ ...transferForm, targetRoomId: e.target.value, targetContainerId: '' })} className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm">
+                                                        <option value="">Pilih Ruangan Target</option>
+                                                        {availableTargetRooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs font-semibold text-indigo-700">Kontainer (Opsional)</label>
+                                                    <select disabled={!transferForm.targetRoomId} value={transferForm.targetContainerId} onChange={(e) => setTransferForm({ ...transferForm, targetContainerId: e.target.value })} className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-50 text-sm">
+                                                        <option value="">Pilih Kontainer</option>
+                                                        {scopedRooms.find(r => r.id === transferForm.targetRoomId)?.containers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="col-span-2 space-y-1.5">
+                                                    <label className="text-xs font-semibold text-indigo-700">Penerima / PIC Baru</label>
+                                                    <input type="text" required value={transferForm.receiver} onChange={(e) => setTransferForm({ ...transferForm, receiver: e.target.value })} className="w-full p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm" placeholder="Nama penerima barang" />
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <button
                                         type="submit"
                                         disabled={selectedItemIds.length === 0}
-                                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 mt-4"
+                                        className={`w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all flex justify-center items-center gap-2 mt-4 ${selectedItemIds.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
                                         <ArrowRightLeft size={20} />
-                                        {selectedItemIds.length > 0 ? `Transfer ${selectedItemIds.length} Aset` : 'Pilih Aset Terlebih Dahulu'}
+                                        {selectedItemIds.length > 0 ? `Pemindahan ${selectedItemIds.length} Barang` : 'Pilih Barang Terlebih Dahulu'}
                                     </button>
                                 </form>
                             ) : (
+                                /* --- TAB PEMINJAMAN / PENGEMBALIAN --- */
                                 <form onSubmit={initiateUsage} className="space-y-8">
-                                    {/* Action Type Toggle */}
                                     <div className="flex p-1 bg-slate-100 rounded-xl mb-6">
-                                        <label className={`flex-1 text-center py-2.5 rounded-lg cursor-pointer font-bold text-sm transition-all ${usageForm.actionType === 'checkout' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                                            <input type="radio" name="action" className="hidden"
-                                                checked={usageForm.actionType === 'checkout'}
-                                                onChange={() => setUsageForm({ ...usageForm, actionType: 'checkout' })}
-                                            />
-                                            Pinjam
+                                        <label className={`flex-1 text-center py-3 rounded-lg cursor-pointer font-bold text-sm transition-all ${usageForm.actionType === 'checkout' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                            <input type="radio" name="action" className="hidden" checked={usageForm.actionType === 'checkout'} onChange={() => { setUsageForm({ ...usageForm, actionType: 'checkout' }); setSelectedItemIds([]); }} />
+                                            Barang Keluar / Pinjam
                                         </label>
-                                        <label className={`flex-1 text-center py-2.5 rounded-lg cursor-pointer font-bold text-sm transition-all ${usageForm.actionType === 'checkin' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                                            <input type="radio" name="action" className="hidden"
-                                                checked={usageForm.actionType === 'checkin'}
-                                                onChange={() => setUsageForm({ ...usageForm, actionType: 'checkin' })}
-                                            />
-                                            Kembali
+                                        <label className={`flex-1 text-center py-3 rounded-lg cursor-pointer font-bold text-sm transition-all ${usageForm.actionType === 'checkin' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                            <input type="radio" name="action" className="hidden" checked={usageForm.actionType === 'checkin'} onChange={() => { setUsageForm({ ...usageForm, actionType: 'checkin' }); setSelectedItemIds([]); }} />
+                                            Barang Masuk / Pengembalian
                                         </label>
                                     </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tanggal</label>
-                                            <div className="relative">
-                                                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                <input
-                                                    type="date"
-                                                    required
-                                                    value={usageForm.date}
-                                                    onChange={(e) => setUsageForm({ ...usageForm, date: e.target.value })}
-                                                    className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Peminjam</label>
-                                            <div className="relative">
-                                                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={usageForm.borrower}
-                                                    onChange={(e) => setUsageForm({ ...usageForm, borrower: e.target.value })}
-                                                    className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700"
-                                                    placeholder="Nama / Kelas"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Purpose</label>
-                                        <textarea
-                                            required
-                                            value={usageForm.purpose}
-                                            onChange={(e) => setUsageForm({ ...usageForm, purpose: e.target.value })}
-                                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-20 resize-none font-medium text-slate-700"
-                                            placeholder="Activity description..."
-                                        />
-                                    </div>
-
-                                    {/* Assets Section */}
-                                    <div className="space-y-4 pt-2">
+                                    <div className="space-y-4">
                                         <div className="flex justify-between items-end border-b border-slate-100 pb-2">
-                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Aset yang Terdampak</label>
-                                            {selectedItemIds.length > 0 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setIsSelectionModalOpen(true)}
-                                                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800"
-                                                >
-                                                    + Add More
-                                                </button>
-                                            )}
+                                            <h3 className="text-sm font-bold text-slate-800">1. Daftar Barang</h3>
                                         </div>
 
                                         {selectedItemIds.length > 0 ? (
                                             <div className="space-y-3">
                                                 <div className="flex flex-col gap-2">
                                                     {selectedItemsData.map(({ item }) => (
-                                                        <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg group transition-all hover:border-red-200 hover:bg-red-50">
+                                                        <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg group transition-all">
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-sm text-slate-700 font-medium">{item.name}</span>
-                                                                {item.isConsumable && (
-                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">Habis Pakai</span>
-                                                                )}
+                                                                <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold uppercase ${getItemStatusBadgeClasses(item.status)}`}>
+                                                                    {getItemStatusLabel(item.status)}
+                                                                </span>
                                                             </div>
-                                                            <div className="flex items-center gap-4">
-                                                                {item.isConsumable && (
-                                                                    <div className="flex items-center gap-2">
-                                                                        <label className="text-xs text-slate-500 font-semibold">Qty:</label>
-                                                                        <input
-                                                                            type="number"
-                                                                            min={1}
-                                                                            max={usageForm.actionType === 'checkout' ? item.quantity : undefined}
-                                                                            value={usageQuantities[item.id] || 1}
-                                                                            onChange={(e) => setUsageQuantities(prev => ({ ...prev, [item.id]: parseInt(e.target.value) || 1 }))}
-                                                                            className="w-20 p-1 border border-slate-300 rounded focus:ring-1 focus:ring-indigo-500 text-sm outline-none"
-                                                                        />
-                                                                        {usageForm.actionType === 'checkout' && (
-                                                                            <span className="text-xs text-slate-400">/ {item.quantity}</span>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => toggleItemSelection(item.id)}
-                                                                    className="text-slate-400 group-hover:text-red-500 transition-colors"
-                                                                >
-                                                                    <X size={14} />
-                                                                </button>
-                                                            </div>
+                                                            <button type="button" onClick={() => toggleItemSelection(item.id)} className="text-slate-400 group-hover:text-red-500 transition-colors">
+                                                                <X size={14} />
+                                                            </button>
                                                         </div>
                                                     ))}
                                                 </div>
-
-                                                {usageForm.actionType === 'checkin' && (
-                                                    <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-2 animate-in fade-in">
-                                                        <label className="text-sm font-bold text-emerald-800 flex items-center gap-2">
-                                                            <AlertCircle size={16} /> Cek Kondisi Saat Kembali
-                                                        </label>
-                                                        <select
-                                                            value={usageForm.conditionCheck}
-                                                            onChange={(e) => setUsageForm({ ...usageForm, conditionCheck: e.target.value as ComponentCondition })}
-                                                            className="w-full p-2.5 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                                                        >
-                                                            {getItemConditionOptions().map((option) => (
-                                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                )}
+                                                <button type="button" onClick={() => setIsSelectionModalOpen(true)} className="inline-flex py-2 px-4 border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-sm font-bold items-center gap-2 transition-colors">
+                                                    <Plus size={16} /> Ubah Pilihan Barang
+                                                </button>
                                             </div>
                                         ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => setIsSelectionModalOpen(true)}
-                                                className="w-full py-8 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/50 transition-all gap-2 group"
-                                            >
-                                                <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-indigo-100/50 flex items-center justify-center transition-colors">
+                                            <button type="button" onClick={() => setIsSelectionModalOpen(true)} className="w-full py-8 border-2 border-dashed border-indigo-200 rounded-xl flex flex-col items-center justify-center text-indigo-500 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all gap-2 group cursor-pointer">
+                                                <div className="w-10 h-10 rounded-full bg-indigo-50 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">
                                                     <Plus size={20} />
                                                 </div>
-                                                <span className="font-medium text-sm">Pilih Aset untuk {usageForm.actionType === 'checkout' ? 'Dipinjam' : 'Dikembalikan'}</span>
+                                                <span className="font-bold text-sm">Pilih Barang untuk {usageForm.actionType === 'checkout' ? 'Dipinjam' : 'Dikembalikan'}</span>
                                             </button>
+                                        )}
+                                    </div>
+
+                                    <div className={`space-y-6 pt-4 border-t border-slate-100 transition-opacity duration-300 ${selectedItemIds.length === 0 ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tanggal</label>
+                                                <div className="relative">
+                                                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                                    <input type="date" required value={usageForm.date} onChange={(e) => setUsageForm({ ...usageForm, date: e.target.value })} className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700" />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">{usageForm.actionType === 'checkout' ? 'Peminjam' : 'Yang Mengembalikan'}</label>
+                                                <div className="relative">
+                                                    <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                                    <input type="text" required value={usageForm.borrower} onChange={(e) => setUsageForm({ ...usageForm, borrower: e.target.value })} className="w-full pl-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium text-slate-700" placeholder="Nama / Kelas" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Keperluan / Keterangan</label>
+                                            <textarea required value={usageForm.purpose} onChange={(e) => setUsageForm({ ...usageForm, purpose: e.target.value })} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none h-20 resize-none font-medium text-slate-700" placeholder="Catatan opsional..." />
+                                        </div>
+
+                                        {usageForm.actionType === 'checkin' && (
+                                            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl space-y-3">
+                                                <label className="text-xs font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-2">
+                                                    <CheckCircle size={14} /> Konfirmasi Kondisi Barang Saat Kembali
+                                                </label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {getItemStatusOptions().filter(opt => opt.value !== 'in_use').map(opt => (
+                                                        <button
+                                                            key={opt.value}
+                                                            type="button"
+                                                            onClick={() => setUsageForm({ ...usageForm, returnStatus: opt.value })}
+                                                            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all border ${
+                                                                usageForm.returnStatus === opt.value
+                                                                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-md scale-105'
+                                                                    : 'bg-white border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                                            }`}
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
 
                                     <button
                                         type="submit"
                                         disabled={selectedItemIds.length === 0}
-                                        className={`w-full py-4 text-white rounded-xl font-bold shadow-lg transition-all flex justify-center items-center gap-2 ${usageForm.actionType === 'checkout' ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200'} disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none disabled:cursor-not-allowed`}
+                                        className={`w-full py-4 text-white rounded-xl font-bold transition-all flex justify-center items-center gap-2 mt-4 ${selectedItemIds.length === 0 ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : usageForm.actionType === 'checkout' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
                                     >
                                         <ClipboardList size={20} />
-                                        {selectedItemIds.length > 0 ? (usageForm.actionType === 'checkout' ? `Pinjam ${selectedItemIds.length} Item` : `Kembalikan ${selectedItemIds.length} Item`) : 'Pilih Aset Terlebih Dahulu'}
+                                        {selectedItemIds.length > 0 ? (usageForm.actionType === 'checkout' ? `Pinjam ${selectedItemIds.length} Barang Keluar` : `Catat ${selectedItemIds.length} Barang Kembali`) : 'Pilih Barang Terlebih Dahulu'}
                                     </button>
                                 </form>
                             )}
@@ -892,110 +755,180 @@ export default function OperationsPage() {
                     </div>
                 </div>
 
-                {/* Right Col: Recent Activity */}
+                {/* Kolom Kanan: Aktivitas Terkini & Pemindahan */}
                 <div className="lg:col-span-1 space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sticky top-6">
-                        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                            <ClipboardList size={18} className="text-indigo-500" /> Aktivitas Terkini
-                        </h3>
+                    {/* 1. Aktivitas Terkini (Borrow/In Use) */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-indigo-50 flex items-center gap-3">
+                            <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                                <ClipboardList size={20} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-indigo-900">Aktivitas Terkini</h3>
+                                <p className="text-xs text-indigo-700">Barang yang sedang dipinjam</p>
+                            </div>
+                            {inUseItems.length > 0 && (
+                                <span className="ml-auto bg-indigo-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">{inUseItems.length}</span>
+                            )}
+                        </div>
+                        <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto font-sans">
+                            {inUseItems.length > 0 ? (
+                                inUseItems.map(({ item, room, container }) => (
+                                    <div key={item.id} className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/30 shadow-sm transition-all hover:bg-white hover:border-indigo-300 group">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h4 className="font-bold text-slate-800 text-sm group-hover:text-indigo-600 transition-colors uppercase tracking-tight">{item.name}</h4>
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 shrink-0 ml-2">IN USE</span>
+                                        </div>
+                                        <div className="space-y-1 mb-3 text-xs text-slate-500">
+                                            <p><span className="font-semibold text-slate-600">Lokasi:</span> {room.name} / {container.name}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setActiveTab('usage');
+                                                setUsageForm(prev => ({ ...prev, actionType: 'checkin' }));
+                                                setSelectedItemIds([item.id]);
+                                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                            }}
+                                            className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm"
+                                        >
+                                            <ClipboardList size={14} /> Kembalikan / Cek Kondisi
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-6 text-slate-400">
+                                    <p className="text-sm font-medium">Tidak ada barang dipinjam.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
-                        {/* Tracker for Active Loans */}
-                        <ActiveLoans onReturn={(itemId) => {
-                            setUsageForm(prev => ({ ...prev, actionType: 'checkin' }));
-                            setSelectedItemIds([itemId]);
-                            setActiveTab('usage');
-                        }} />
-
-                        <PendingVerifications />
-
-                        <RecentActivityFeed />
-
-                        <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-                            <button
-                                onClick={() => setIsHistoryOpen(true)}
-                                className="text-sm text-indigo-600 font-bold hover:text-indigo-700 flex items-center justify-center gap-2 w-full"
-                            >
-                                <History size={16} /> Lihat Semua Riwayat Operasional
-                            </button>
+                    {/* 2. Pemindahan Barang (Pending Transfers) */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-100 bg-amber-50 flex items-center gap-3">
+                            <div className="bg-amber-100 p-2 rounded-lg text-amber-600">
+                                <ArrowRightLeft size={20} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-amber-900">Pemindahan Barang</h3>
+                                <p className="text-xs text-amber-700">Dalam proses pemindahan</p>
+                            </div>
+                            {pendingItems.length > 0 && (
+                                <span className="ml-auto bg-amber-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center">{pendingItems.length}</span>
+                            )}
+                        </div>
+                        <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
+                            {pendingItems.length > 0 ? (
+                                pendingItems.map(({ item, room, container, logDetails }) => (
+                                    <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 shadow-sm transition-all hover:bg-white hover:border-amber-400 group">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <h4 className="font-bold text-slate-800 text-sm group-hover:text-amber-600 transition-colors uppercase tracking-tight">{item.name}</h4>
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 shrink-0 ml-2">PENDING</span>
+                                        </div>
+                                        <div className="space-y-1.5 mb-4 text-xs">
+                                            <p className="text-slate-600"><span className="font-semibold">Dari:</span> {String(logDetails.from || '-')}</p>
+                                            <p className="text-slate-600"><span className="font-semibold">Tujuan:</span> {room.name}</p>
+                                            <div className="pt-1 text-slate-500 italic flex flex-wrap gap-x-2">
+                                                <span>PIC: {String(logDetails.mover || '-')}</span>
+                                                <span>Rec: {String(logDetails.receiver || '-')}</span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => openArrivalCheck({ item, room, container, logDetails }, 'transfer')}
+                                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm"
+                                        >
+                                            <CheckCircle size={14} /> Konfirmasi Tiba / Cek Kondisi
+                                        </button>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-6 text-slate-400">
+                                    <p className="text-sm font-medium">Tidak ada pemindahan barang.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Selection Modal */}
+            {/* ============= MODALS ============= */}
+
+            {/* Modal Pilih Barang */}
             {isSelectionModalOpen && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                            <h3 className="text-lg font-bold text-gray-800">Pilih Item</h3>
-                            <button onClick={() => setIsSelectionModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-colors">
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <div>
+                                <h3 className="text-xl font-extrabold text-slate-800">Pilih Barang</h3>
+                                <p className="text-xs text-slate-500">Cari dan pilih barang yang akan diproses</p>
+                            </div>
+                            <button onClick={() => setIsSelectionModalOpen(false)} className="p-2 hover:bg-white rounded-full transition-colors text-slate-400 hover:text-slate-600 shadow-sm border border-transparent hover:border-slate-200">
                                 <X size={20} />
                             </button>
                         </div>
 
-                        <div className="p-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+                        <div className="p-4 bg-white border-b border-slate-100">
                             <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                 <input
                                     type="text"
-                                    placeholder="Cari berdasarkan nama, ID, atau ruangan..."
+                                    placeholder="Cari berdasarkan nama atau kode barang..."
+                                    className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium transition-all"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                                     autoFocus
                                 />
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                            {filteredItems.length > 0 ? (
-                                filteredItems.map(({ item, room, container }) => {
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {filteredItems.map(({ item, room, container }) => {
                                     const isSelected = selectedItemIds.includes(item.id);
-                                    const displayStatus = item.condition === 'broken' ? 'broken' : item.status;
+                                    // LOGIC: Block items already in use for checkout
+                                    const isBlocked = activeTab === 'usage' && usageForm.actionType === 'checkout' && item.status !== 'good';
+
                                     return (
                                         <div
                                             key={item.id}
-                                            onClick={() => toggleItemSelection(item.id)}
-                                            className={`p-3 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${isSelected ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'}`}
+                                            onClick={() => !isBlocked && toggleItemSelection(item.id)}
+                                            className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-center gap-4 group relative ${isSelected ? 'border-indigo-600 bg-indigo-50/50 shadow-md' : isBlocked ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed' : 'border-slate-100 hover:border-indigo-200 hover:bg-slate-50 shadow-sm hover:shadow-md'
+                                                }`}
                                         >
-                                            <div className="flex items-center gap-3 overflow-hidden">
-                                                <div className={`shrink-0 ${isSelected ? 'text-indigo-600' : 'text-gray-300'}`}>
-                                                    {isSelected ? <CheckSquare size={20} /> : <Square size={20} />}
-                                                </div>
-                                                <div className="truncate">
-                                                    <div className={`font-medium ${isSelected ? 'text-indigo-900' : 'text-gray-700'}`}>{item.name}</div>
-                                                    <div className="text-xs text-gray-500 flex items-center gap-2">
-                                                        <ItemConditionBadge condition={item.condition} className="px-2 py-0.5 text-[10px] uppercase" />
-                                                        <span className="text-gray-400">•</span>
-                                                        <span>{room.name} / {container.name}</span>
-                                                    </div>
-                                                </div>
+                                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 scale-110' : 'border-slate-300 group-hover:border-indigo-400'}`}>
+                                                {isSelected && <CheckCircle size={14} className="text-white" />}
                                             </div>
-                                            <div className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${displayStatus === 'available' ? 'bg-emerald-100 text-emerald-700' :
-                                                displayStatus === 'in_use' ? 'bg-amber-100 text-amber-700' :
-                                                    displayStatus === 'broken' ? 'bg-rose-100 text-rose-700' :
-                                                        'bg-red-100 text-red-700'
-                                                }`}>
-                                                {displayStatus.replace('_', ' ')}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                    <h4 className="font-bold text-slate-800 text-sm truncate uppercase tracking-tight">{item.name}</h4>
+                                                    <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase ${getItemStatusBadgeClasses(item.status)}`}>
+                                                        {getItemStatusLabel(item.status)}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 font-medium">
+                                                    {room.name} • {container.name}
+                                                </p>
                                             </div>
+                                            {isBlocked && (
+                                                <div className="absolute inset-0 bg-slate-100/40 flex items-center justify-center rounded-2xl">
+                                                    <span className="bg-slate-800 text-white text-[9px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shadow-lg">
+                                                        <AlertTriangle size={10} /> TIDAK TERSEDIA
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     );
-                                })
-                            ) : (
-                                <div className="text-center py-12 text-gray-400">
-                                    <Search size={48} className="mx-auto mb-2 opacity-20" />
-                                    <p>Tidak ada item yang cocok dengan "{searchTerm}"</p>
-                                </div>
-                            )}
+                                })}
+                            </div>
                         </div>
 
-                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
-                            <span className="text-sm font-medium text-gray-500">
-                                {selectedItemIds.length} item dipilih
-                            </span>
+                        <div className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                            <p className="text-sm font-bold text-slate-600">
+                                {selectedItemIds.length} Barang Terpilih
+                            </p>
                             <button
                                 onClick={() => setIsSelectionModalOpen(false)}
-                                className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-lg shadow-indigo-200 hover:bg-indigo-500 transition-all active:scale-95"
+                                className="px-8 py-3 bg-[#000080] hover:bg-indigo-800 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all active:scale-95"
                             >
                                 Selesai
                             </button>
@@ -1004,443 +937,166 @@ export default function OperationsPage() {
                 </div>
             )}
 
+            {/* Verification Modal */}
             <VerificationModal
                 isOpen={isVerificationOpen}
-                onClose={() => {
-                    setIsVerificationOpen(false);
-                    setPendingAction(null);
-                }}
-                onVerify={(info) => {
-                    if (pendingAction === 'transfer') void executeTransfer(info);
-                    if (pendingAction === 'usage') void executeUsage(info);
-                }}
-                title="Verifikasi Transaksi"
-                description="Masukkan nama lengkap, nomor HP, atau email untuk memverifikasi transaksi ini."
+                onClose={() => setIsVerificationOpen(false)}
+                onVerify={handleVerificationComplete}
+                title={pendingAction === 'transfer' ? 'Verifikasi Pemindahan' : 'Verifikasi Konfirmasi'}
+                description="Masukkan Nama, Email, atau No HP Admin untuk menyetujui tindakan ini."
             />
 
-            <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
-        </div>
-    );
-}
-
-
-
-// Active Loans Component
-function ActiveLoans({ onReturn }: { onReturn: (itemId: string) => void }) {
-    const { user } = useAuth();
-    const { rooms } = useInventory();
-
-    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all');
-    const scopedRooms = isScopeRestricted
-        ? rooms.filter(r => r.type === user?.labScope)
-        : rooms;
-
-    // Find all items in use
-    const activeItems = scopedRooms.flatMap(room =>
-        room.containers?.flatMap(container =>
-            container.items?.filter(item => item.status === 'in_use')
-                .map(item => ({ item, roomName: room.name })) || []
-        ) || []
-    );
-
-    if (activeItems.length === 0) return null;
-
-    return (
-        <div className="mb-8 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
-            <h3 className="font-bold text-indigo-800 mb-2 flex items-center gap-2">
-                <Clock size={18} /> Sedang Digunakan
-            </h3>
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {activeItems.map(({ item, roomName }) => (
-                    <div key={item.id} className="bg-white p-3 rounded-lg border border-indigo-100 flex justify-between items-center shadow-sm">
-                        <div className="overflow-hidden">
-                            <div className="font-bold text-slate-700 text-sm truncate">{item.name}</div>
-                            <div className="text-xs text-slate-500 truncate">Dari: {roomName}</div>
+            {/* Arrival/Return Status Modal */}
+            {arrivalCheckItem && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-200 overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 bg-slate-50">
+                            <h3 className="text-xl font-extrabold text-slate-800">Cek Status Barang</h3>
+                            <p className="text-xs text-slate-500 mt-1">Konfirmasi kondisi aktual {arrivalCheckItem.item.name}</p>
                         </div>
-                        <button
-                            onClick={() => onReturn(item.id)}
-                            className="shrink-0 px-3 py-1.5 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-200 transition-colors flex items-center gap-1"
-                        >
-                            Kembalikan <ArrowRight size={12} />
-                        </button>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-// Define PendingVerifications Helper Component
-function PendingVerifications() {
-    const { recentLogs, rooms, updateRoom } = useInventory();
-    const [verifyingLog, setVerifyingLog] = useState<{ roomId: string, roomName: string, itemName: string, log: ItemLog } | null>(null);
-
-    const pendingLogs = recentLogs.filter(entry => {
-        const details = parseLogDetails(entry.log.details);
-        return entry.log.action === 'TRANSFER' && details.verificationStatus === 'pending';
-    });
-
-    const handleConfirm = async (condition: ComponentCondition) => {
-        if (!verifyingLog) return;
-
-        const targetLogEntry = verifyingLog;
-        const affectedRoomIds = new Set<string>();
-
-        let found = false;
-        // Need to loop rooms to find the item that has THIS log id
-        const newRooms = rooms.map(room => ({
-            ...room,
-            containers: room.containers?.map(container => ({
-                ...container,
-                items: container.items?.map(item => {
-                    const logIndex = item.logs?.findIndex(l => l.id === targetLogEntry.log.id);
-                    if (logIndex !== undefined && logIndex !== -1) {
-                        found = true;
-                        affectedRoomIds.add(room.id);
-                        // Update Log
-                        const updatedLogs = [...item.logs];
-                        const oldDetails = parseLogDetails(updatedLogs[logIndex].details);
-                        updatedLogs[logIndex] = {
-                            ...updatedLogs[logIndex],
-                            details: JSON.stringify({
-                                ...oldDetails,
-                                verificationStatus: 'verified',
-                                verifiedAt: new Date().toISOString(),
-                                conditionAfter: condition
-                            })
-                        };
-
-                        return {
-                            ...item,
-                            condition: condition, // Update item condition based on verification
-                            logs: updatedLogs
-                        };
-                    }
-                    return item;
-                }) || []
-            })) || []
-        }));
-
-        if (found) {
-            try {
-                for (const roomId of affectedRoomIds) {
-                    const roomState = newRooms.find((room) => room.id === roomId);
-                    if (!roomState) continue;
-                    await updateRoom(roomState);
-                }
-                setVerifyingLog(null);
-            } catch (error) {
-                console.error('Failed to persist verification update:', error);
-            }
-        }
-    };
-
-    if (pendingLogs.length === 0) return null;
-
-    return (
-        <div className="mb-8 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-            <h3 className="font-bold text-amber-800 mb-2 flex items-center gap-2">
-                <AlertCircle size={18} /> Menunggu Konfirmasi
-            </h3>
-            <div className="space-y-2">
-                {pendingLogs.map((entry) => (
-                    <div key={entry.log.id} className="bg-white p-3 rounded-lg border border-amber-100 flex justify-between items-center shadow-sm">
-                        <div>
-                            <div className="font-bold text-slate-700 text-sm">{entry.itemName}</div>
-                            <div className="text-xs text-slate-500">
-                                Ke: {formatLocationLabel(parseLogDetails(entry.log.details).to)}
+                        <div className="p-8 space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Kondisi Saat Ini</label>
+                                <div className="grid grid-cols-1 gap-3">
+                                    {getItemStatusOptions().filter(o => o.value !== 'in_use').map((option) => (
+                                        <button
+                                            key={option.value}
+                                            onClick={() => setArrivalStatus(option.value as ComponentStatus)}
+                                            className={`p-4 rounded-2xl border-2 flex items-center justify-between transition-all group ${arrivalStatus === option.value
+                                                    ? 'border-indigo-600 bg-indigo-50 shadow-md ring-2 ring-indigo-600/10'
+                                                    : 'border-slate-100 hover:border-slate-200 hover:bg-slate-50'
+                                                }`}
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${arrivalStatus === option.value ? 'bg-indigo-600 text-white border-2 border-indigo-400/50' : 'bg-slate-100 text-slate-400 group-hover:bg-indigo-100 group-hover:text-indigo-500'}`}>
+                                                    {option.value === 'good' && <CheckCircle size={20} />}
+                                                    {option.value === 'maintenance' && <Wrench size={20} />}
+                                                    {option.value === 'broken' && <X size={20} />}
+                                                </div>
+                                                <div className="text-left">
+                                                    <p className={`text-sm font-extrabold ${arrivalStatus === option.value ? 'text-indigo-900' : 'text-slate-700'}`}>{option.label}</p>
+                                                    <p className="text-[10px] text-slate-500 font-medium">
+                                                        {option.value === 'good' && 'Barang dalam kondisi baik.'}
+                                                        {option.value === 'maintenance' && 'Barang perlu direpair.'}
+                                                        {option.value === 'broken' && 'Barang rusak / hilang.'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${arrivalStatus === option.value ? 'bg-indigo-600 border-indigo-600 scale-110' : 'border-slate-300'}`}>
+                                                {arrivalStatus === option.value && <div className="w-2 h-2 bg-white rounded-full" />}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
-                        <button
-                            onClick={() => setVerifyingLog(entry)}
-                            className="px-3 py-1.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-lg hover:bg-amber-200 transition-colors"
-                        >
-                            Konfirmasi
-                        </button>
-                    </div>
-                ))}
-            </div>
-
-            {/* Verification Modal */}
-            {verifyingLog && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-                    <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm animate-in zoom-in-95">
-                        <h3 className="font-bold text-lg mb-4">Konfirmasi Kondisi Barang</h3>
-                        <p className="text-sm text-slate-500 mb-6">
-                            Bagaimana kondisi <b>{verifyingLog.itemName}</b> setelah tiba?
-                        </p>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button onClick={() => { void handleConfirm('good'); }} className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100">Baik</button>
-                            <button onClick={() => { void handleConfirm('service'); }} className="p-3 bg-amber-50 border border-amber-200 text-amber-700 font-bold rounded-xl hover:bg-amber-100">Service</button>
-                            <button onClick={() => { void handleConfirm('damaged'); }} className="p-3 bg-rose-50 border border-rose-200 text-rose-700 font-bold rounded-xl hover:bg-rose-100">Rusak</button>
+                        <div className="p-6 bg-slate-50 flex gap-3">
+                            <button onClick={() => setArrivalCheckItem(null)} className="flex-1 py-3 border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 rounded-xl font-bold transition-all text-sm">Batal</button>
+                            <button onClick={executeArrivalCheck} className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all text-sm shadow-lg shadow-indigo-100">Konfirmasi</button>
                         </div>
-                        <button onClick={() => setVerifyingLog(null)} className="w-full mt-4 py-2 text-slate-400 font-bold text-sm hover:text-slate-600">Batal</button>
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
 
-// ---------------------------------------------------------
-// Recent Activity Feed Component
-// ---------------------------------------------------------
-function RecentActivityFeed() {
-    const { recentLogs, rooms } = useInventory();
-    const { user } = useAuth();
-
-    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all' && user?.labScope !== 'non-lab');
-    const scopedRooms = isScopeRestricted
-        ? rooms.filter(r => r.type === user?.labScope)
-        : rooms;
-
-    const allowedRoomIds = new Set(scopedRooms.map(r => r.id));
-    const operationalActions = new Set(['TRANSFER', 'CHECK_OUT', 'RETURNED']);
-
-    const scopedRecentLogs = isScopeRestricted
-        ? recentLogs.filter(entry => allowedRoomIds.has(entry.roomId))
-        : recentLogs;
-    
-    const operationalLogs = scopedRecentLogs.filter((entry) => operationalActions.has(entry.log.action));
-    const topLogs = operationalLogs.slice(0, 5); // Pick top 5 most recent
-
-    if (topLogs.length === 0) return null;
-
-    return (
-        <div className="space-y-3 mt-4">
-            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest pl-1 mb-2">Riwayat Terbaru</h4>
-            {topLogs.map((entry, idx) => {
-                const details = parseLogDetails(entry.log.details);
-                return (
-                    <div key={idx} className="bg-white p-3 rounded-xl border border-slate-100 flex items-start gap-3 shadow-sm hover:border-indigo-100 transition-colors">
-                        <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${entry.log.action === 'TRANSFER' ? 'bg-amber-400' :
-                            entry.log.action === 'CHECK_OUT' ? 'bg-indigo-400' :
-                                entry.log.action === 'RETURNED' ? 'bg-emerald-400' : 'bg-slate-300'
-                            }`} />
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-bold text-slate-700 truncate">{entry.itemName}</div>
-                            <div className="text-[10px] uppercase font-bold text-indigo-600 mb-0.5 mt-0.5 bg-indigo-50 inline-block px-1.5 py-0.5 rounded">
-                                {entry.log.action.replace('_', ' ')}
-                            </div>
-                            <div className="text-xs text-slate-500 line-clamp-2 mt-1">
-                                {entry.log.action === 'TRANSFER' && `Dari ${formatLocationLabel(details.from)} ke ${formatLocationLabel(details.to)}`}
-                                {entry.log.action === 'CHECK_OUT' && `Peminjam: ${details.borrower ? String(details.borrower) : '-'} \u2014 ${details.purpose ? String(details.purpose) : '-'}`}
-                                {entry.log.action === 'RETURNED' && `Dikembalikan: ${details.returner ? String(details.returner) : '-'} (Kondisi: ${details.condition ? String(details.condition) : '-'})`}
-                            </div>
-                            <div className="text-[10px] font-medium text-slate-400 mt-1.5 flex items-center gap-1">
-                                <Clock size={10} />
-                                {new Date(entry.log.date).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            {/* Service Request Description Modal */}
+            {serviceFormItem && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[120] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md animate-in zoom-in-95 duration-200 overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 bg-amber-50">
+                            <h3 className="text-xl font-extrabold text-amber-900 flex items-center gap-2">
+                                <Wrench size={24} /> Laporkan Kerusakan
+                            </h3>
+                            <p className="text-xs text-amber-700 mt-1">Buat tiket permintaan servis ke Sarpras untuk {serviceFormItem.item.name}</p>
+                        </div>
+                        <div className="p-8 space-y-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Deskripsi Kerusakan</label>
+                                <textarea
+                                    required
+                                    value={serviceDescription}
+                                    onChange={(e) => setServiceDescription(e.target.value)}
+                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 h-32 resize-none text-sm font-medium text-slate-700 shadow-inner"
+                                    placeholder="Jelaskan detail kerusakan barang..."
+                                    autoFocus
+                                />
                             </div>
                         </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-// ---------------------------------------------------------
-// HistoryModal Component
-// ---------------------------------------------------------
-function HistoryModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-    const { recentLogs, rooms } = useInventory();
-    const { user } = useAuth();
-
-    // Mirror the same scope restriction logic as the main component
-    const isScopeRestricted = Boolean(user?.labScope && user?.labScope !== 'all' && user?.labScope !== 'non-lab');
-    const scopedRooms = isScopeRestricted
-        ? rooms.filter(r => r.type === user?.labScope)
-        : rooms;
-
-    const allowedRoomIds = new Set(scopedRooms.map(r => r.id));
-
-    const [filterType, setFilterType] = useState<'ALL' | 'TRANSFER' | 'CHECK_OUT' | 'RETURNED'>('ALL');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedLog, setSelectedLog] = useState<{ entry: (typeof recentLogs)[0]; details: Record<string, unknown> } | null>(null);
-    const operationalActions = new Set(['TRANSFER', 'CHECK_OUT', 'RETURNED']);
-
-    // Only apply room filter when scope-restricted; otherwise recentLogs is already scoped by portalType
-    const scopedRecentLogs = isScopeRestricted
-        ? recentLogs.filter(entry => allowedRoomIds.has(entry.roomId))
-        : recentLogs;
-    const operationalLogs = scopedRecentLogs.filter((entry) => operationalActions.has(entry.log.action));
-
-    const filteredLogs = operationalLogs.filter(entry => {
-        if (filterType !== 'ALL' && entry.log.action !== filterType) return false;
-        if (searchTerm) {
-            const s = searchTerm.toLowerCase();
-            const d = parseLogDetails(entry.log.details);
-            if (
-                !entry.itemName.toLowerCase().includes(s) &&
-                !String(d.mover ?? '').toLowerCase().includes(s) &&
-                !String(d.borrower ?? '').toLowerCase().includes(s) &&
-                !String(d.returner ?? '').toLowerCase().includes(s)
-            ) return false;
-        }
-        return true;
-    });
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg"><History size={20} /></div>
-                        <div>
-                            <h3 className="text-lg font-bold text-slate-800">Riwayat Operasional</h3>
-                            <p className="text-xs text-slate-500">Log peminjaman, pengembalian, dan transfer aset.</p>
+                        <div className="p-6 bg-slate-50 flex gap-3">
+                            <button onClick={() => setServiceFormItem(null)} className="flex-1 py-3 border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 rounded-xl font-bold transition-all text-sm">Batal</button>
+                            <button onClick={submitServiceRequest} className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold transition-all text-sm shadow-lg shadow-amber-100">Kirim Laporan</button>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
                 </div>
-
-                {/* Filters */}
-                <div className="px-6 py-4 border-b border-slate-100 flex flex-wrap gap-4 items-center justify-between">
-                    <div className="flex gap-2">
-                        {(['ALL', 'TRANSFER', 'CHECK_OUT', 'RETURNED'] as const).map(type => (
-                            <button
-                                key={type}
-                                onClick={() => setFilterType(type)}
-                                className={`px-4 py-2 rounded-lg text-xs font-bold transition-colors border ${filterType === type
-                                    ? 'bg-indigo-600 border-indigo-600 text-white'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                    }`}
-                            >
-                                {type === 'ALL' ? 'Semua' : type === 'CHECK_OUT' ? 'Peminjaman' : type === 'RETURNED' ? 'Pengembalian' : 'Transfer'}
+            )}
+            {/* Operational History Modal */}
+            {isHistoryModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-end">
+                    <div className="bg-white w-full max-w-xl h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                                    <HistoryIcon size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-extrabold text-slate-800">Riwayat Operasional</h3>
+                                    <p className="text-xs text-slate-500">50 aktivitas terbaru dari seluruh aset</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsHistoryModalOpen(false)} className="p-2 hover:bg-white rounded-full transition-colors text-slate-400 hover:text-slate-600">
+                                <X size={20} />
                             </button>
-                        ))}
-                    </div>
-                    <div className="relative">
-                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                            type="text" placeholder="Cari item, nama..." value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64"
-                        />
-                    </div>
-                </div>
+                        </div>
 
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
-                    <div className="space-y-3">
-                        {filteredLogs.length > 0 ? filteredLogs.map((entry, idx) => {
-                            const details = parseLogDetails(entry.log.details);
-                            return (
-                                <div key={idx} onClick={() => setSelectedLog({ entry, details })} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all group">
-                                    <div className={`w-3 h-3 rounded-full shrink-0 ${entry.log.action === 'TRANSFER' ? 'bg-amber-400' :
-                                        entry.log.action === 'CHECK_OUT' ? 'bg-indigo-400' :
-                                            entry.log.action === 'RETURNED' ? 'bg-emerald-400' : 'bg-slate-300'
-                                        }`} />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                            <span className="truncate">{entry.itemName}</span>
-                                            {details.quantityProcessed !== undefined && (
-                                                <span className="text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-bold border border-indigo-100 shrink-0">
-                                                    Qty: {String(details.quantityProcessed)}
-                                                </span>
-                                            )}
-                                            <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded font-semibold uppercase shrink-0">
-                                                {entry.log.action.replace('_', ' ')}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                            {sortedLogs.length > 0 ? sortedLogs.map(({ item, log }, idx) => {
+                                const details = parseLogDetails(log.details);
+                                return (
+                                    <div key={log.id + idx} className="p-4 rounded-xl border border-slate-100 bg-white hover:border-indigo-200 transition-all space-y-2">
+                                        <div className="flex justify-between items-start">
+                                            <div className="space-y-0.5">
+                                                <h4 className="font-bold text-slate-800 text-sm">{item.name}</h4>
+                                                <p className="text-[10px] text-slate-400 font-mono">{item.sku}</p>
+                                            </div>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                                                log.action === 'TRANSFER' ? 'bg-amber-100 text-amber-700' :
+                                                log.action === 'CHECK_OUT' ? 'bg-indigo-100 text-indigo-700' :
+                                                log.action === 'RETURNED' ? 'bg-emerald-100 text-emerald-700' :
+                                                'bg-slate-100 text-slate-700'
+                                            }`}>
+                                                {log.action.replace('_', ' ')}
                                             </span>
                                         </div>
-                                        <div className="text-sm text-slate-500 mt-1 line-clamp-1">
-                                            {entry.log.action === 'TRANSFER' && `Dari ${formatLocationLabel(details.from)} ke ${formatLocationLabel(details.to)}`}
-                                            {entry.log.action === 'CHECK_OUT' && `Peminjam: ${details.borrower ? String(details.borrower) : '-'} \u2014 ${details.purpose ? String(details.purpose) : '-'}`}
-                                            {entry.log.action === 'RETURNED' && `Dikembalikan oleh: ${details.returner ? String(details.returner) : '-'} (Kondisi: ${details.condition ? String(details.condition) : '-'})`}
-                                        </div>
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                        <div className="text-xs font-bold text-slate-600">{new Date(entry.log.date).toLocaleDateString()}</div>
-                                        <div className="text-xs text-slate-400">{new Date(entry.log.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                                    </div>
-                                    <ArrowRight size={20} className="text-slate-300 group-hover:text-indigo-500 ml-2 transition-colors shrink-0" />
-                                </div>
-                            );
-                        }) : (
-                            <div className="text-center py-12">
-                                <History className="mx-auto text-slate-300 mb-3" size={48} />
-                                <p className="text-slate-500 font-medium">Belum ada riwayat operasi yang cocok dengan filter.</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Detail Popup */}
-            {selectedLog && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setSelectedLog(null)}>
-                    <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h3 className="font-bold text-lg text-slate-800">Detail Aktivitas</h3>
-                                <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">{selectedLog.entry.log.action.replace('_', ' ')}</p>
-                            </div>
-                            <button onClick={() => setSelectedLog(null)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400"><X size={20} /></button>
-                        </div>
-                        <div className="space-y-4">
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                <div className="text-xs text-slate-400 font-bold uppercase mb-1">Item</div>
-                                <div className="font-bold text-slate-700">
-                                    {selectedLog.entry.itemName}
-                                    {selectedLog.details.quantityProcessed !== undefined && ` (Qty: ${String(selectedLog.details.quantityProcessed)})`}
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <div className="text-xs text-slate-400 font-bold uppercase mb-1">Tanggal</div>
-                                    <div className="text-sm font-medium text-slate-600">{new Date(selectedLog.entry.log.date).toLocaleDateString()}</div>
-                                </div>
-                                {selectedLog.entry.log.action === 'TRANSFER' && (
-                                    <>
-                                        <div className="col-span-2">
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Perpindahan</div>
-                                            <div className="text-sm text-slate-600 p-2 bg-slate-50 rounded-lg">
-                                                <div className="flex justify-between border-b border-slate-200 pb-1 mb-1"><span>Dari:</span> <span className="font-bold">{formatLocationLabel(selectedLog.details.from)}</span></div>
-                                                <div className="flex justify-between"><span>Ke:</span> <span className="font-bold">{formatLocationLabel(selectedLog.details.to)}</span></div>
+                                        <div className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg space-y-1">
+                                            {log.action === 'TRANSFER' && (
+                                                <>
+                                                    <p><span className="font-semibold">Dari:</span> {String(details.from || '-')}</p>
+                                                    <p><span className="font-semibold">Ke:</span> {String(details.to || '-')}</p>
+                                                </>
+                                            )}
+                                            {log.action === 'CHECK_OUT' && (
+                                                <>
+                                                    <p><span className="font-semibold">Peminjam:</span> {String(details.borrower || '-')}</p>
+                                                    <p><span className="font-semibold">Tujuan:</span> {String(details.purpose || '-')}</p>
+                                                </>
+                                            )}
+                                            {log.action === 'RETURNED' && (
+                                                <>
+                                                    <p><span className="font-semibold">Oleh:</span> {String(details.returnedBy || details.borrower || '-')}</p>
+                                                    <p><span className="font-semibold">Status:</span> {getItemStatusLabel(details.statusAtArrival as any || 'good')}</p>
+                                                </>
+                                            )}
+                                            <div className="flex justify-between items-center pt-1 border-t border-slate-200 mt-1 opacity-60">
+                                                <span>PIC: {String(details.verifiedBy || '-') }</span>
+                                                <span className="flex items-center gap-1"><Calendar size={10} /> {new Date(log.date).toLocaleString('id-ID')}</span>
                                             </div>
                                         </div>
-                                        <div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Pemindah</div>
-                                            <div className="text-sm font-bold text-slate-600">{selectedLog.details.mover ? String(selectedLog.details.mover) : '-'}</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Penerima</div>
-                                            <div className="text-sm font-bold text-slate-600">{selectedLog.details.receiver ? String(selectedLog.details.receiver) : '-'}</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Status Verifikasi</div>
-                                            <div className={`text-[10px] font-bold px-2 py-1 rounded inline-block ${selectedLog.details.verificationStatus === 'verified' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                                                }`}>
-                                                {selectedLog.details.verificationStatus ? String(selectedLog.details.verificationStatus).toUpperCase() : 'UNVERIFIED'}
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-                                {selectedLog.entry.log.action === 'CHECK_OUT' && (
-                                    <>
-                                        <div className="col-span-2">
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Peminjam</div>
-                                            <div className="text-sm font-medium text-slate-600">{String(selectedLog.details.borrower)}</div>
-                                        </div>
-                                        <div className="col-span-2">
-                                            <div className="text-xs text-slate-400 font-bold uppercase mb-1">Keperluan</div>
-                                            <div className="text-sm font-medium text-slate-600 italic">"{String(selectedLog.details.purpose)}"</div>
-                                        </div>
-                                    </>
-                                )}
-                                {selectedLog.entry.log.action === 'RETURNED' && (
-                                    <div className="col-span-2">
-                                        <div className="text-xs text-slate-400 font-bold uppercase mb-1">Kondisi Kembali</div>
-                                        <div className={`text-sm font-bold capitalize ${selectedLog.details.condition === 'good' ? 'text-emerald-600' :
-                                            selectedLog.details.condition === 'broken' ? 'text-rose-600' : 'text-amber-600'
-                                            }`}>{String(selectedLog.details.condition || '-')}</div>
                                     </div>
-                                )}
-                            </div>
+                                );
+                            }) : (
+                                <div className="text-center py-20 text-slate-400">
+                                    <p>Belum ada riwayat aktivitas.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

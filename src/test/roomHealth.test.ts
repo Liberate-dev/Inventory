@@ -20,11 +20,11 @@ const createRoom = (items: Array<Partial<Room['containers'][number]['items'][num
         name: `Item ${index + 1}`,
         type: 'General',
         condition: 'good',
-        status: 'available',
+        status: 'in_use',
         specs: '',
         logs: [],
         ...item,
-      })),
+      }) as any),
     },
   ],
 });
@@ -33,8 +33,8 @@ describe('calculateRoomHealthPercentage', () => {
   it('uses item condition instead of availability status', () => {
     const room = createRoom([
       { condition: 'good', status: 'maintenance' },
-      { condition: 'service', status: 'available' },
-      { condition: 'good', status: 'missing' },
+      { condition: 'service', status: 'in_use' },
+      { condition: 'good', status: 'broken' },
     ]);
 
     expect(calculateRoomHealthPercentage(room)).toBe(67);

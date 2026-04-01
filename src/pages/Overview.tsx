@@ -22,7 +22,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { usePortal } from '../context/PortalContext';
 import { useServiceRequests } from '../context/ServiceRequestContext';
 import { useAuth } from '../context/AuthContext';
-import { ItemConditionBadge } from '../components/common/ItemConditionBadge';
+import { ItemStatusBadge } from '../components/common/ItemStatusBadge';
 import { X } from 'lucide-react';
 import type { Room } from '../types';
 import { calculateRoomHealthPercentage } from '../utils/roomHealth';
@@ -322,7 +322,6 @@ const Overview = () => {
                                             <tr>
                                                 <th className="px-6 py-4">Nama Aset</th>
                                                 <th className="px-6 py-4">Lokasi (Ruang - Wadah)</th>
-                                                <th className="px-6 py-4 text-center">Kondisi</th>
                                                 <th className="px-6 py-4 text-center">Status</th>
                                             </tr>
                                         </thead>
@@ -334,15 +333,7 @@ const Overview = () => {
                                                             <td className="px-6 py-4 font-medium text-slate-800">{item.name}</td>
                                                             <td className="px-6 py-4 text-slate-600">{room.name} — {container.name}</td>
                                                             <td className="px-6 py-4 text-center">
-                                                                <ItemConditionBadge condition={item.condition} className="px-3 py-1 text-xs" />
-                                                            </td>
-                                                            <td className="px-6 py-4 text-center capitalize">
-                                                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${item.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
-                                                                    item.status === 'in_use' ? 'bg-blue-100 text-blue-700' :
-                                                                        'bg-slate-100 text-slate-700'
-                                                                    }`}>
-                                                                    {item.status || 'available'}
-                                                                </span>
+                                                                <ItemStatusBadge status={item.status} />
                                                             </td>
                                                         </tr>
                                                     ))

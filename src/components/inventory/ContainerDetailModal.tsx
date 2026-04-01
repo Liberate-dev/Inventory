@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Trash2, Box, Activity, Zap, Scissors, Server, Printer, AlertTriangle, RefreshCw, CheckSquare, Square } from 'lucide-react';
-import type { Container, Item, ItemLog, ServiceRequest } from '../../types';
+import type { Container, Item, ItemLog, ServiceRequest, ComponentStatus } from '../../types';
 import { useServiceRequests } from '../../context/ServiceRequestContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { useToast } from '../../context/ToastContext';
 import { useItemForm } from '../../hooks/useItemForm';
-import { ItemConditionBadge } from '../common/ItemConditionBadge';
+import { ItemStatusBadge } from '../common/ItemStatusBadge';
 import { ImageUpload } from '../common/ImageUpload';
 
 interface ContainerDetailModalProps {
@@ -107,7 +107,7 @@ const formatLogDetails = (action: string, details: unknown): string => {
     if (action === 'RETURNED' && data) {
         let text = `Dikembalikan oleh: ${String(data.returner ?? data.borrower ?? '-')}`;
         if (data.receivedBy) text += ` (Diterima oleh: ${String(data.receivedBy)})`;
-        text += ` (Kondisi: ${String(data.condition ?? '-')})`;
+        text += ` (Status: ${String(data.statusAtArrival ?? data.statusAtReturn ?? '-')})`;
         return text;
     }
     if (action === 'MAINTENANCE_REQUESTED' && data) {
@@ -242,7 +242,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                 return {
                     ...i,
                     ...commonData,
-                    condition: formData.condition, // Update condition as well
+                    status: formData.status as ComponentStatus,
                     logs: [log, ...previousLogs]
                 };
             });
@@ -251,8 +251,8 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
             const newItem: Item = {
                 id: `item-${Date.now()}`,
                 ...commonData,
-                status: 'available', // Default availability
-                condition: formData.condition, // Initial condition
+                status: 'good', // Default to good instead of available
+                condition: 'good', // Default condition
                 specs: formData.parameters.map(p => `${p.label}: ${p.value}`).join(', ') || 'Standard', // Fallback for legacy specs
                 logs: [createItemLog('CREATED', `Item ${formData.name} ditambahkan.`)]
             };
@@ -308,6 +308,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                 stationId: container.id,
                 stationName: container.name,
                 roomId: roomId ?? 'unknown',
+                roomName: roomName ?? 'unknown',
                 description: reportReason,
                 requesterName: user?.name || 'Unknown User',
                 componentSku: formData.sku,
@@ -318,7 +319,6 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                 if (item.id !== editingId) return item;
                 return {
                     ...item,
-                    condition: 'service' as const,
                     status: 'maintenance' as const,
                     logs: [
                         createItemLog('MAINTENANCE_REQUESTED', `Laporan maintenance dibuat: ${reportReason.trim()}`),
@@ -684,17 +684,15 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                             )}
                                         </div>
 
-                                        {/* Status Selection (Preserved) */}
+                                        {/* Status Selection (Simplified) */}
                                         <div className="pt-4 border-t border-gray-100 opacity-70">
                                             <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
                                                 <AlertTriangle size={12} /> {t('condition_status_hint')}
                                             </p>
                                             <div className="flex gap-2">
-                                                <ItemConditionBadge condition={formData.condition} className="px-3 py-1 text-xs uppercase" />
+                                                <ItemStatusBadge status={formData.status as ComponentStatus} />
                                             </div>
                                         </div>
-
-                                        {/* Action Buttons */}
                                     </div>
 
                                     <div className="shrink-0 border-t border-gray-100 bg-white px-6 py-4">
@@ -771,8 +769,6 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 
 // 2D Item Card Component matching user design
 const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest, canEdit = true }: { item: Item, onEdit: () => void, onDelete: () => void, hasActiveRequest?: boolean, canEdit?: boolean }) => {
-    const { t } = useLanguage();
-
     return (
         <motion.div
             layout
@@ -798,22 +794,20 @@ const ItemCard = ({ item, onEdit, onDelete, hasActiveRequest, canEdit = true }: 
 
             <div className="w-14 h-14 mb-4 rounded-full bg-gray-50 group-hover:bg-indigo-50 flex items-center justify-center text-gray-500 group-hover:text-indigo-600 transition-colors overflow-hidden relative border border-gray-100">
                 {item.imageUrl || item.image_layer ? (
-                    <img src={`${window.location.protocol}//${window.location.host}/${item.imageUrl || item.image_layer}`} alt={item.name} className="absolute inset-0 w-full h-full object-cover" />
-                ) : renderItemIcon(item.type, item.name, 28)}
-            </div>
-
-            <h4 className="font-bold text-gray-900 text-base mb-1 text-center leading-tight line-clamp-2">{item.name}</h4>
-            <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-2">{item.category || item.type}</p>
-
-            {/* Quantity Badge */}
-            <div className="mb-3 px-2 py-0.5 bg-slate-100 rounded text-[10px] font-mono text-slate-600 border border-slate-200">
-                {item.quantity || 1} {item.unit || 'Pcs'}
-                {item.isConsumable && (item.quantity || 0) <= (item.minStock || 0) && (
-                    <span className="ml-2 text-rose-500 font-bold">{t('low_stock')}</span>
+                    <img src={item.imageUrl || item.image_layer} alt={item.name} className="w-full h-full object-cover" />
+                ) : (
+                    renderItemIcon(item.type, item.name, 28)
                 )}
             </div>
 
-            <ItemConditionBadge condition={item.condition} className="px-3 py-1 text-[10px] uppercase tracking-wider" />
+            <div className="text-center w-full">
+                <h4 className="font-bold text-gray-900 text-sm truncate uppercase tracking-tight mb-1">{item.name}</h4>
+                <p className="text-[10px] text-gray-400 font-medium mb-3 truncate">{item.sku || 'No SKU'}</p>
+                
+                <div className="flex justify-center">
+                    <ItemStatusBadge status={item.status} />
+                </div>
+            </div>
         </motion.div>
     );
 };

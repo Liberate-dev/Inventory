@@ -1,5 +1,5 @@
+export type ComponentStatus = 'good' | 'in_use' | 'maintenance' | 'broken';
 export type ComponentCondition = 'good' | 'service' | 'damaged' | 'broken';
-export type ComponentStatus = 'available' | 'in_use' | 'maintenance' | 'missing';
 
 export type UserRole = 'admin' | 'kepala_lab' | 'guru' | 'kepala_sekolah' | 'sarpras' | 'admin_nl';
 
@@ -27,7 +27,6 @@ export interface Item {
     id: string;
     name: string;
     type: string;
-    condition: ComponentCondition;
     status: ComponentStatus;
     specs: string;
     imageUrl?: string;
@@ -41,6 +40,7 @@ export interface Item {
     unit?: string;
     minStock?: number;
     parameters?: { label: string; value: string }[];
+    condition: ComponentCondition;
 }
 
 export type RequestStatus = 'pending' | 'accepted' | 'denied' | 'completed';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Item, ComponentCondition } from '../types';
+import type { Item, ComponentStatus } from '../types';
 import {
     buildInventoryCode,
     DEFAULT_INVENTORY_CODE_SETTINGS,
@@ -18,7 +18,7 @@ interface ItemFormData {
     minStock: number | '';
     source: string;
     parameters: { label: string; value: string }[];
-    condition: ComponentCondition;
+    status: ComponentStatus;
     imageUrl: string;
 }
 
@@ -37,7 +37,7 @@ export const useItemForm = (initialItem?: Item | null) => {
         minStock: '',
         source: '',
         parameters: [],
-        condition: 'good',
+        status: 'good',
         imageUrl: ''
     };
 
@@ -62,7 +62,7 @@ export const useItemForm = (initialItem?: Item | null) => {
             minStock: item.minStock || 0,
             source: item.source || '',
             parameters: item.parameters || [],
-            condition: item.condition || 'good',
+            status: item.status || 'good',
             imageUrl: item.imageUrl || item.image_layer || ''
         });
         setIsEditing(true);

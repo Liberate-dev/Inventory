@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import type { Room, ItemLog, Container, Item } from '../types';
+import type { Room, ItemLog, Container, Item, ComponentStatus, ComponentCondition } from '../types';
 import { usePortal } from './PortalContext';
 import { useAuth } from './AuthContext';
 import { getAuthHeaders, getAuthToken } from '../utils/api';
@@ -14,9 +14,9 @@ interface InventoryStats {
     totalAssets: number;
     health: {
         good: number;
-        service: number;
-        damaged: number;
+        maintenance: number;
         broken: number;
+        in_use: number;
     };
     grading: number; // 0-100 score
 }
@@ -33,9 +33,6 @@ interface InventoryContextType {
     deleteContainer: (roomId: string, containerId: string) => Promise<void>;
     reorderContainers: (roomId: string, containerIds: string[]) => Promise<void>;
     refreshRooms: () => Promise<void>;
-
-    // Container/Item actions could be moved here or kept in room-specific logic
-    // For Overview, we mainly need read access to all nested data
 
     stats: InventoryStats;
     recentLogs: { roomId: string; roomName: string; itemName: string; log: ItemLog }[];
@@ -56,13 +53,23 @@ const normalizeLog = (raw: unknown): ItemLog => {
 };
 
 const normalizeItem = (raw: unknown): Item => {
-    const item = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<Item> & Record<string, unknown>;
-    const condition = item.condition === 'good' || item.condition === 'service' || item.condition === 'damaged' || item.condition === 'broken'
-        ? item.condition
-        : 'good';
-    const status = item.status === 'available' || item.status === 'in_use' || item.status === 'maintenance' || item.status === 'missing'
-        ? item.status
-        : 'available';
+    const item = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+
+    // Migrate old status/condition to NEW status model
+    let status: ComponentStatus = 'good';
+    const oldStatus = String(item.status || '').toLowerCase();
+    const oldCondition = String(item.condition || '').toLowerCase();
+
+    if (oldStatus === 'in_use') {
+        status = 'in_use';
+    } else if (oldStatus === 'maintenance' || oldCondition === 'service') {
+        status = 'maintenance';
+    } else if (oldStatus === 'missing' || oldCondition === 'broken' || oldCondition === 'damaged') {
+        status = 'broken';
+    } else if (oldStatus === 'available' || oldCondition === 'good' || !item.status) {
+        status = 'good';
+    }
+
     const parameters = Array.isArray(item.parameters)
         ? item.parameters
             .map((entry) => {
@@ -76,12 +83,21 @@ const normalizeItem = (raw: unknown): Item => {
             .filter((entry): entry is { label: string; value: string } => entry !== null)
         : [];
 
+    let condition: ComponentCondition = 'good';
+    if (oldCondition === 'service' || oldCondition === 'damaged' || oldCondition === 'broken') {
+        condition = oldCondition as ComponentCondition;
+    } else if (status === 'maintenance') {
+        condition = 'service';
+    } else if (status === 'broken') {
+        condition = 'damaged';
+    }
+
     return {
         id: String(item.id ?? `item-${Date.now()}`),
         name: typeof item.name === 'string' && item.name.trim().length > 0 ? item.name : 'Unnamed Item',
         type: typeof item.type === 'string' && item.type.trim().length > 0 ? item.type : 'General',
-        condition,
         status,
+        condition,
         specs: typeof item.specs === 'string' ? item.specs : '',
         image_layer: typeof item.image_layer === 'string' ? item.image_layer : undefined,
         logs: Array.isArray(item.logs) ? item.logs.map(normalizeLog) : [],
@@ -144,13 +160,10 @@ const flattenRoomItems = (rooms: Room[]) => rooms.flatMap((room) =>
             id: item.id,
             name: item.name,
             roomName: room.name,
-            condition: item.condition,
             status: item.status
         }))
     )
 );
-
-
 
 export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const { portalType } = usePortal();
@@ -212,14 +225,14 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
             const previous = previousItems.get(item.id);
             if (!previous) return;
 
-            const wasInService = previous.condition === 'service' || previous.status === 'maintenance';
-            const isInService = item.condition === 'service' || item.status === 'maintenance';
+            const wasInMaintenance = previous.status === 'maintenance';
+            const isInMaintenance = item.status === 'maintenance';
 
-            if (!wasInService && isInService) {
-                const message = `${item.name} di ${item.roomName} masuk service.`;
-                showToast(`Item masuk service: ${message}`, 'warning');
+            if (!wasInMaintenance && isInMaintenance) {
+                const message = `${item.name} di ${item.roomName} masuk maintenance/service.`;
+                showToast(`Item masuk maintenance: ${message}`, 'warning');
                 addNotification({
-                    title: 'Item Masuk Service',
+                    title: 'Item Masuk Maintenance',
                     message,
                     type: 'warning'
                 });
@@ -251,7 +264,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         } catch (err) {
             console.error(err);
             setError('Gagal memuat data inventory.');
-            // Fallback to empty or keep emptyMain
         } finally {
             if (showLoading) {
                 setLoading(false);
@@ -286,10 +298,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         };
     }, [fetchRooms, isAuthenticated]);
 
-    // Effect for local storage REMOVED explicitly to rely on DB
-    // (Or we can keep it as backup, but better to rely on API)
-
-
     // Filter rooms based on active portal
     const filteredRooms = useMemo(() => rooms.filter(r => r.category === portalType), [rooms, portalType]);
 
@@ -297,7 +305,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const stats: InventoryStats = {
         totalRooms: filteredRooms.length,
         totalAssets: 0,
-        health: { good: 0, service: 0, damaged: 0, broken: 0 },
+        health: { good: 0, maintenance: 0, broken: 0, in_use: 0 },
         grading: 100
     };
 
@@ -308,14 +316,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         room.containers?.forEach(container => {
             container.items?.forEach(item => {
                 stats.totalAssets++;
-                if (item.condition) {
-                    stats.health[item.condition]++;
+                if (item.status && stats.health.hasOwnProperty(item.status)) {
+                    stats.health[item.status as keyof typeof stats.health]++;
                 } else {
-                    // Fallback for legacy data migration
-                    const legacyStatus = (item as any).status;
-                    if (['good', 'service', 'damaged', 'broken'].includes(legacyStatus)) {
-                        stats.health[legacyStatus as 'good']++;
-                    }
+                    stats.health.good++; // Fallback
                 }
 
                 // Collect logs
@@ -414,15 +418,10 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         );
     };
 
-    // Optimistic room update + backend synchronization.
     const updateRoom = async (updatedRoom: Room) => {
-        // Optimistic update
         setRooms(prev => prev.map(r => r.id === updatedRoom.id ? updatedRoom : r));
-
         try {
-            // Push changes to backend
             await persistRoomState(updatedRoom);
-            // Fetch real state from DB so temporary item IDs are replaced by DB IDs
             await fetchRooms(false);
         } catch (err) {
             console.error(err);
@@ -454,7 +453,6 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    // Persist container + nested items to backend.
     const updateContainer = async (roomId: string, updatedContainer: Container) => {
         try {
             await requestMutation(

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Package, RefreshCw, Trash2, Undo, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { getAuthHeaders } from '../../utils/api';
-import { ItemConditionBadge } from '../../components/common/ItemConditionBadge';
+import { ItemStatusBadge } from '../../components/common/ItemStatusBadge';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
 import type { Item } from '../../types';
 
@@ -169,7 +169,6 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
                                 <th className="px-4 py-3 whitespace-nowrap">Nama Barang</th>
                                 <th className="px-4 py-3 whitespace-nowrap">Kode/SKU</th>
                                 <th className="px-4 py-3 whitespace-nowrap">Lokasi</th>
-                                <th className="px-4 py-3 whitespace-nowrap">Kondisi</th>
                                 <th className="px-4 py-3 whitespace-nowrap">Tanggal Pengadaan</th>
                                 <th className="px-4 py-3 whitespace-nowrap min-w-[170px]">Status</th>
                                 <th className="px-4 py-3 whitespace-nowrap">Aksi</th>
@@ -189,9 +188,6 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
                                         {item.room_name}
                                         {item.container_name ? ` - ${item.container_name}` : ''}
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <ItemConditionBadge condition={item.condition} className="px-3 py-1 text-xs" />
-                                    </td>
                                     <td className="px-4 py-3 whitespace-nowrap">
                                         {formatDateId(getProcurementDateFromLogs(item.logs, item.created_at))}
                                     </td>
@@ -201,9 +197,7 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
                                                 Dihapus ({new Date(item.deleted_at).toLocaleDateString()})
                                             </span>
                                         ) : (
-                                            <span className="inline-flex items-center justify-center whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
-                                                Aktif
-                                            </span>
+                                            <ItemStatusBadge status={item.status} />
                                         )}
                                     </td>
                                     <td className="px-4 py-3">
