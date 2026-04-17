@@ -105,14 +105,32 @@ function fetchServiceRequests(PDO $db, array $authUser): array
         ";
 
     if (authIsScopeRestricted($authUser)) {
-        $sql .= "WHERE r.type = :lab_scope ";
+        $labScope = (string) ($authUser['lab_scope'] ?? '');
+        if ($labScope === 'non-lab') {
+            $sql .= "WHERE r.category = 'non-lab' ";
+        } else {
+            $sql .= "WHERE r.type = :lab_scope ";
+        }
+    } else {
+        $portalType = $_GET['portalType'] ?? null;
+        if ($portalType === 'lab' || $portalType === 'non-lab') {
+            $sql .= "WHERE r.category = :portal_type ";
+        }
     }
 
     $sql .= "ORDER BY sr.request_date DESC, sr.id DESC";
 
     $stmt = $db->prepare($sql);
     if (authIsScopeRestricted($authUser)) {
-        $stmt->bindValue(':lab_scope', (string) $authUser['lab_scope'], PDO::PARAM_STR);
+        $labScope = (string) ($authUser['lab_scope'] ?? '');
+        if ($labScope !== 'non-lab') {
+            $stmt->bindValue(':lab_scope', $labScope, PDO::PARAM_STR);
+        }
+    } else {
+        $portalType = $_GET['portalType'] ?? null;
+        if ($portalType === 'lab' || $portalType === 'non-lab') {
+            $stmt->bindValue(':portal_type', $portalType, PDO::PARAM_STR);
+        }
     }
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

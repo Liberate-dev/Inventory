@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { getAuthHeaders, getAuthToken } from '../utils/api';
 import { useToast } from './ToastContext';
 import { useNotifications } from './NotificationContext';
+import { usePortal } from './PortalContext';
 
 interface ServiceRequestContextType {
     requests: ServiceRequest[];
@@ -26,6 +27,7 @@ const ServiceRequestContext = createContext<ServiceRequestContextType | undefine
 
 export const ServiceRequestProvider = ({ children }: { children: ReactNode }) => {
     const { user, isAuthenticated, logout } = useAuth();
+    const { portalType } = usePortal();
     const { showToast } = useToast();
     const { addNotification } = useNotifications();
     const [requests, setRequests] = useState<ServiceRequest[]>([]);
@@ -130,7 +132,8 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
     }, [addNotification, showToast, user]);
 
     const fetchRequests = useCallback(async () => {
-        const response = await fetch(REQUESTS_ENDPOINT, {
+        const url = `${REQUESTS_ENDPOINT}?portalType=${encodeURIComponent(portalType)}`;
+        const response = await fetch(url, {
             headers: getAuthHeaders()
         });
         if (response.status === 401) {
@@ -177,7 +180,7 @@ export const ServiceRequestProvider = ({ children }: { children: ReactNode }) =>
 
         maybeNotifyRequestChanges(normalized);
         setRequests(normalized);
-    }, [logout, maybeNotifyRequestChanges]);
+    }, [logout, maybeNotifyRequestChanges, portalType]);
 
     useEffect(() => {
         if (!isAuthenticated || !getAuthToken()) {
