@@ -15,7 +15,7 @@ interface AuthContextType {
     refreshUsers: () => Promise<void>;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api')
 const LOGIN_ENDPOINT = `${API_BASE_URL}/auth/login.php`;
 const USERS_ENDPOINT = `${API_BASE_URL}/users/users.php`;
 
@@ -148,7 +148,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await fetchUsers().catch((error) => {
                 console.error('Failed to refresh users after login:', error);
             });
-            return { success: true, redirectPath: loggedInUser.role === 'admin' ? '/admin' : '/' };
+            // Always redirect to root after login; HomeRoute (which has full matrix context) will decide
+            // the correct portal (/admin or landing) based on the current access matrix.
+            return { success: true, redirectPath: '/' };
         } catch (error) {
             console.error('Login error:', error);
             return {

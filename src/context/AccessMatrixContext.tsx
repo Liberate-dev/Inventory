@@ -14,9 +14,23 @@ export type FeatureKey =
     | 'reports'
     | 'print_assets'
     | 'user_management'
-    | 'system_logs';
+    | 'system_logs'
+    | 'asset_accounting';
 
 export type AccessMatrix = Record<FeatureKey, Record<UserRole, AccessLevel>>;
+
+export const ACCESS_MATRIX_FEATURES: FeatureKey[] = [
+    'dashboard',
+    'rooms',
+    'item_management',
+    'service_requests',
+    'operations',
+    'reports',
+    'print_assets',
+    'user_management',
+    'system_logs',
+    'asset_accounting',
+];
 
 export const DEFAULT_MATRIX: AccessMatrix = {
     dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'full' },
@@ -28,6 +42,7 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full', admin_nl: 'none' },
     user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
     system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
+    asset_accounting: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'full', sarpras: 'none', admin_nl: 'none' },
 };
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
@@ -40,16 +55,17 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
     print_assets: 'Cetak Label, Kartu & Kode',
     user_management: 'Manajemen Pengguna',
     system_logs: 'Log Sistem',
+    asset_accounting: 'Akuntansi Aset Tetap',
 };
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api')
 const ACCESS_MATRIX_ENDPOINT = `${API_BASE_URL}/access_matrix/matrix.php`;
 
 const normalizeMatrix = (raw: unknown): AccessMatrix => {
     const source = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<AccessMatrix>;
     const next: AccessMatrix = { ...DEFAULT_MATRIX };
 
-    for (const feature of Object.keys(DEFAULT_MATRIX) as FeatureKey[]) {
+    for (const feature of ACCESS_MATRIX_FEATURES) {
         next[feature] = { ...DEFAULT_MATRIX[feature] };
         const featureSource = source[feature];
         if (!featureSource || typeof featureSource !== 'object') continue;
@@ -57,7 +73,7 @@ const normalizeMatrix = (raw: unknown): AccessMatrix => {
         for (const role of Object.keys(DEFAULT_MATRIX[feature]) as UserRole[]) {
             const candidate = (featureSource as Partial<Record<UserRole, AccessLevel>>)[role];
             if (candidate === 'full' || candidate === 'view' || candidate === 'none') {
-                next[feature][role] = role === 'admin' ? DEFAULT_MATRIX[feature][role] : candidate;
+                next[feature][role] = candidate;
             }
         }
     }

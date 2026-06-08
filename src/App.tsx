@@ -7,6 +7,7 @@ import { ToastProvider } from './context/ToastContext';
 import { PortalProvider } from './context/PortalContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { AccessMatrixProvider, useAccessMatrix } from './context/AccessMatrixContext';
+import { AssetAccountingProvider } from './context/AssetAccountingContext';
 import type { FeatureKey } from './context/AccessMatrixContext';
 
 import DashboardLayout from './layouts/DashboardLayout';
@@ -25,6 +26,7 @@ import PrintAssetsPage from './pages/admin/PrintAssetsPage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import SystemLogsPage from './pages/admin/SystemLogsPage';
 import ItemManagementPage from './pages/admin/ItemManagementPage';
+import AssetAccountingPage from './pages/admin/AssetAccountingPage';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -36,12 +38,19 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 
 const HomeRoute = () => {
   const { isAuthenticated, user } = useAuth();
+  const { canSee, loading } = useAccessMatrix();
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.role === 'admin') {
+  if (loading) {
+    return null;
+  }
+
+  // Matrix-driven portal decision: users who can access admin-only features go to admin portal
+  const hasAdminPortalAccess = canSee('user_management', user.role) || canSee('system_logs', user.role);
+  if (hasAdminPortalAccess) {
     return <Navigate to="/admin" replace />;
   }
 
@@ -50,8 +59,15 @@ const HomeRoute = () => {
 
 const InventoryRoute = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
+  const { canSee, loading } = useAccessMatrix();
 
-  if (user?.role === 'admin') {
+  if (loading || !user) {
+    return null;
+  }
+
+  // Matrix-driven: if the user has access to admin-only features per the matrix, they belong in the admin portal
+  const hasAdminPortalAccess = canSee('user_management', user.role) || canSee('system_logs', user.role);
+  if (hasAdminPortalAccess) {
     return <Navigate to="/admin" replace />;
   }
 
@@ -60,12 +76,19 @@ const InventoryRoute = ({ children }: { children: React.ReactNode }) => {
 
 const AdminRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, user } = useAuth();
+  const { canSee, loading } = useAccessMatrix();
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
 
-  if (user.role !== 'admin') {
+  if (loading) {
+    return null;
+  }
+
+  // Matrix-driven: only users who can see admin-only features (per current matrix) are allowed in the admin portal
+  const hasAdminPortalAccess = canSee('user_management', user.role) || canSee('system_logs', user.role);
+  if (!hasAdminPortalAccess) {
     return <Navigate to="/" replace />;
   }
 
@@ -112,7 +135,8 @@ const App = () => {
             <NotificationProvider>
               <InventoryProvider>
                 <ServiceRequestProvider>
-                  <Router>
+                  <AssetAccountingProvider>
+                    <Router>
                     <Routes>
                       <Route path="/login" element={<LoginPage />} />
 
@@ -143,6 +167,7 @@ const App = () => {
                         <Route path="inventory-codes" element={<InventoryRoute><FeatureRoute feature="print_assets"><Navigate to="/dashboard/print-assets?tab=codes" replace /></FeatureRoute></InventoryRoute>} />
                         <Route path="items" element={<InventoryRoute><FeatureRoute feature="item_management"><ItemManagementPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="operations" element={<InventoryRoute><FeatureRoute feature="operations"><OperationsPage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="assets" element={<InventoryRoute><FeatureRoute feature="asset_accounting"><AssetAccountingPage /></FeatureRoute></InventoryRoute>} />
                       </Route>
 
                       <Route path="/admin" element={
@@ -159,6 +184,7 @@ const App = () => {
                       </Route>
                     </Routes>
                   </Router>
+                  </AssetAccountingProvider>
                 </ServiceRequestProvider>
               </InventoryProvider>
             </NotificationProvider>

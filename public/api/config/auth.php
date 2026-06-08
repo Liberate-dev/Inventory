@@ -110,6 +110,7 @@ function authDefaultPermissionMatrix(): array
         'print_assets' => ['admin' => 'none', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'view', 'sarpras' => 'full', 'admin_nl' => 'none'],
         'user_management' => ['admin' => 'full', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'none', 'sarpras' => 'none', 'admin_nl' => 'none'],
         'system_logs' => ['admin' => 'full', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'none', 'sarpras' => 'none', 'admin_nl' => 'none'],
+        'asset_accounting' => ['admin' => 'none', 'kepala_lab' => 'none', 'guru' => 'none', 'kepala_sekolah' => 'full', 'sarpras' => 'none', 'admin_nl' => 'none'],
     ];
 }
 

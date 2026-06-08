@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Package, RefreshCw, Trash2, Undo, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { getAuthHeaders } from '../../utils/api';
 import { ItemStatusBadge } from '../../components/common/ItemStatusBadge';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
 import type { Item } from '../../types';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api')
 const ITEMS_API_ENDPOINT = `${API_BASE_URL}/inventory/items_management.php`;
 
 type ItemWithLocation = Item & {
@@ -18,13 +19,14 @@ type ItemWithLocation = Item & {
 
 const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
     const { user } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
     const [items, setItems] = useState<ItemWithLocation[]>([]);
     const [loading, setLoading] = useState(false);
     const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'deleted'>('all');
     const [search, setSearch] = useState('');
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-    const canManagerItems = user?.role === 'admin' || user?.role === 'sarpras' || user?.role === 'kepala_lab';
+    const canManagerItems = user ? canEditFeature('item_management', user.role) : false;
 
     const fetchItems = async () => {
         setLoading(true);

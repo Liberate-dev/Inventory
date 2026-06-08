@@ -13,6 +13,14 @@ vi.mock('../context/AuthContext', () => ({
   }),
 }));
 
+vi.mock('../context/AccessMatrixContext', () => ({
+  useAccessMatrix: () => ({
+    canEditFeature: () => true,
+    canSee: () => true,
+    loading: false,
+  }),
+}));
+
 vi.mock('../utils/api', () => ({
   getAuthHeaders: () => ({}),
 }));
