@@ -10,13 +10,14 @@ export type FeatureKey =
     | 'rooms'
     | 'item_management'
     | 'service_requests'
-    | 'item_management'
     | 'operations'
     | 'reports'
     | 'print_assets'
     | 'user_management'
     | 'system_logs'
-    | 'asset_accounting';
+    | 'asset_accounting'
+    | 'preventive_maintenance'
+    | 'disposal';
 
 export type AccessMatrix = Record<FeatureKey, Record<UserRole, AccessLevel>>;
 
@@ -31,13 +32,14 @@ export const ACCESS_MATRIX_FEATURES: FeatureKey[] = [
     'user_management',
     'system_logs',
     'asset_accounting',
+    'preventive_maintenance',
+    'disposal',
 ];
 
 export const DEFAULT_MATRIX: AccessMatrix = {
-<<<<<<< HEAD
     dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'full' },
     rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view', admin_nl: 'full' },
-    item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view', admin_nl: 'full' },
+    item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'full', admin_nl: 'full' },
     service_requests: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'view', sarpras: 'full', admin_nl: 'view' },
     operations: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'full' },
     reports: { admin: 'none', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'full' },
@@ -45,17 +47,8 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
     system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
     asset_accounting: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'full', sarpras: 'none', admin_nl: 'none' },
-=======
-    dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full' },
-    rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view' },
-    service_requests: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'view', sarpras: 'full' },
-    item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'full' },
-    operations: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none' },
-    reports: { admin: 'none', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full' },
-    print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full' },
-    user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
-    system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
->>>>>>> 71543160f3249b1d47dc1a8f7bab854c1039bdfb
+    preventive_maintenance: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'none' },
+    disposal: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'none' },
 };
 
 const getLockedAccessLevel = (feature: FeatureKey, role: UserRole): AccessLevel | null => {
@@ -75,13 +68,14 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
     rooms: 'Ruangan & Inventaris',
     item_management: 'Manajemen Barang',
     service_requests: 'Permintaan Layanan',
-    item_management: 'Manajemen Barang',
     operations: 'Operasional',
     reports: 'Laporan Bulanan',
     print_assets: 'Cetak Label, Kartu & Kode',
     user_management: 'Manajemen Pengguna',
     system_logs: 'Log Sistem',
     asset_accounting: 'Akuntansi Aset Tetap',
+    preventive_maintenance: 'Pemeliharaan Preventif',
+    disposal: 'Disposal / Pelepasan Aset',
 };
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api')
