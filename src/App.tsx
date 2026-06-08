@@ -27,6 +27,8 @@ import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import SystemLogsPage from './pages/admin/SystemLogsPage';
 import ItemManagementPage from './pages/admin/ItemManagementPage';
 import AssetAccountingPage from './pages/admin/AssetAccountingPage';
+import PreventiveMaintenancePage from './pages/admin/PreventiveMaintenancePage';
+import DisposalPage from './pages/admin/DisposalPage';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated } = useAuth();
@@ -168,6 +170,8 @@ const App = () => {
                         <Route path="items" element={<InventoryRoute><FeatureRoute feature="item_management"><ItemManagementPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="operations" element={<InventoryRoute><FeatureRoute feature="operations"><OperationsPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="assets" element={<InventoryRoute><FeatureRoute feature="asset_accounting"><AssetAccountingPage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="preventive-maintenance" element={<InventoryRoute><FeatureRoute feature="preventive_maintenance"><PreventiveMaintenancePage /></FeatureRoute></InventoryRoute>} />
+                        <Route path="disposal" element={<InventoryRoute><FeatureRoute feature="disposal"><DisposalPage /></FeatureRoute></InventoryRoute>} />
                       </Route>
 
                       <Route path="/admin" element={
