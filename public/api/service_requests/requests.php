@@ -2,6 +2,7 @@
 include_once '../config/cors.php';
 include_once '../config/database.php';
 include_once '../config/auth.php';
+require_once dirname(__DIR__) . '/inventory/schema_compat.php';
 
 header('Content-Type: application/json');
 
@@ -13,6 +14,8 @@ if (!$db) {
     echo json_encode(['status' => 'error', 'message' => 'Database connection failed.']);
     exit;
 }
+
+ensureInventorySoftDeleteColumns($db);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $rawInput = file_get_contents("php://input");

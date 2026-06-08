@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useServiceRequests } from '../context/ServiceRequestContext';
 import { useInventory } from '../context/InventoryContext';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { useAccessMatrix } from '../context/AccessMatrixContext';
 import { CheckCircle, ChevronDown, ChevronUp, Clock, Download, History, Search, XCircle } from 'lucide-react';
 import type { RequestStatus, ServiceRequest, Container } from '../types';
 import ContainerDetailModal from '../components/inventory/ContainerDetailModal';
@@ -99,6 +101,8 @@ const ServiceRequests = () => {
     const { requests, updateRequestStatus } = useServiceRequests();
     const { getRoom, updateRoom, rooms, refreshRooms } = useInventory(); // Get access to live inventory
     const { t } = useLanguage();
+    const { user } = useAuth();
+    const { canEditFeature } = useAccessMatrix();
     const [filterStatus, setFilterStatus] = useState<RequestStatus | 'all'>('all');
     const [timeFilter, setTimeFilter] = useState<'all' | 'today' | '7d' | '30d' | '90d'>('all');
     const [dateSortOrder, setDateSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -120,6 +124,7 @@ const ServiceRequests = () => {
     const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
     const dateMenuRef = useRef<HTMLDivElement | null>(null);
+    const canManageServiceRequests = user ? canEditFeature('service_requests', user.role) : false;
 
     useEffect(() => {
         const handlePointerDown = (event: MouseEvent) => {
@@ -308,7 +313,7 @@ const ServiceRequests = () => {
     };
 
     const handleReject = async () => {
-        if (!selectedRequest || !rejectionReason.trim()) return;
+        if (!canManageServiceRequests || !selectedRequest || !rejectionReason.trim()) return;
         try {
             await updateRequestStatus(selectedRequest.id, 'denied', rejectionReason);
             await refreshRooms();
@@ -322,7 +327,7 @@ const ServiceRequests = () => {
     };
 
     const handleComplete = async (outcome: 'repaired' | 'broken') => {
-        if (!selectedRequest) return;
+        if (!canManageServiceRequests || !selectedRequest) return;
         try {
             await updateRequestStatus(selectedRequest.id, 'completed', undefined, outcome, completionNote);
             await refreshRooms();
@@ -336,7 +341,7 @@ const ServiceRequests = () => {
     };
 
     const handleAccept = async () => {
-        if (!selectedRequest) return;
+        if (!canManageServiceRequests || !selectedRequest) return;
         try {
             await updateRequestStatus(selectedRequest.id, 'accepted', undefined, undefined, acceptNote);
             await refreshRooms();
@@ -556,7 +561,7 @@ const ServiceRequests = () => {
 
                                                 {/* Actions moved to same column to save space */}
                                                 <div className="flex gap-1">
-                                                    {req.status === 'pending' && (
+                                                    {canManageServiceRequests && req.status === 'pending' && (
                                                         <>
                                                             <button
                                                                 onClick={() => {
@@ -578,7 +583,7 @@ const ServiceRequests = () => {
                                                             </button>
                                                         </>
                                                     )}
-                                                    {req.status === 'accepted' && (
+                                                    {canManageServiceRequests && req.status === 'accepted' && (
                                                         <button
                                                             onClick={() => {
                                                                 setSelectedRequest(req);
@@ -608,7 +613,7 @@ const ServiceRequests = () => {
             </div>
 
             {/* Reject Modal */}
-            {isAcceptModalOpen && (
+            {canManageServiceRequests && isAcceptModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-2">Terima Permintaan</h3>
@@ -642,7 +647,7 @@ const ServiceRequests = () => {
             )}
 
             {/* Reject Modal */}
-            {isRejectModalOpen && (
+            {canManageServiceRequests && isRejectModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-2">{t('deny_title')}</h3>
@@ -673,7 +678,7 @@ const ServiceRequests = () => {
             )}
 
             {/* Complete Modal */}
-            {isCompleteModalOpen && (
+            {canManageServiceRequests && isCompleteModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-2">{t('complete_title')}</h3>

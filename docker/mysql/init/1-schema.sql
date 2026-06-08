@@ -95,6 +95,7 @@ CREATE TABLE `items` (
   `parameters` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`parameters`)),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `sku` (`sku`),
   KEY `container_id` (`container_id`),
@@ -167,5 +168,56 @@ INSERT INTO `inventory_code_settings`
 VALUES
   (1, 'INV', '-', '4', 1, 4, 1)
 ON DUPLICATE KEY UPDATE `id` = `id`;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `user_preferences`
+--
+
+CREATE TABLE `user_preferences` (
+  `user_id` int NOT NULL,
+  `language` enum('en','id') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'id',
+  `portal_type` enum('lab','non-lab') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'lab',
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`user_id`),
+  CONSTRAINT `fk_user_preferences_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `system_logs`
+--
+
+CREATE TABLE `system_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `actor_user_id` int DEFAULT NULL,
+  `action_key` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
+  `target_type` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `target_id` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `details_json` longtext COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_system_logs_actor_user_id` (`actor_user_id`),
+  KEY `idx_system_logs_action_key` (`action_key`),
+  KEY `idx_system_logs_created_at` (`created_at`),
+  CONSTRAINT `fk_system_logs_actor_user` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `access_matrix`
+-- Config table: stores feature-role permission levels (no FK by design)
+--
+
+CREATE TABLE `access_matrix` (
+  `feature_key` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `role_key` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
+  `access_level` enum('full','view','none') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'none',
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`feature_key`, `role_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 COMMIT;

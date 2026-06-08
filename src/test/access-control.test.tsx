@@ -6,6 +6,10 @@ import type { User } from '../types';
 import { DEFAULT_MATRIX } from '../context/AccessMatrixContext';
 import { LanguageProvider } from '../context/LanguageContext';
 
+const cloneMatrix = () => JSON.parse(JSON.stringify(DEFAULT_MATRIX)) as typeof DEFAULT_MATRIX;
+
+let matrixResponse = cloneMatrix();
+
 const users: User[] = [
   {
     id: '1',
@@ -33,6 +37,14 @@ const users: User[] = [
   },
   {
     id: '4',
+    username: 'kepala_lab_e2e',
+    name: 'Kepala Lab E2E',
+    email: 'kepalalab@example.test',
+    role: 'kepala_lab',
+    labScope: 'computer',
+  },
+  {
+    id: '5',
     username: 'sarpras_e2e',
     name: 'Sarpras E2E',
     email: 'sarpras@example.test',
@@ -98,6 +110,27 @@ const requests = [
     requesterName: 'Guru E2E',
     status: 'pending',
     requestDate: '2026-03-06T08:00:00.000Z',
+  },
+];
+
+const managedItems = [
+  {
+    id: 'item-1',
+    name: 'PC Siswa 01',
+    sku: 'INV-2026-KOM-0001',
+    room_name: 'Lab Komputer 1',
+    container_name: 'Meja 1',
+    condition: 'good',
+    deleted_at: null,
+    created_at: '2026-03-01T08:00:00.000Z',
+    logs: [
+      {
+        id: 'log-1',
+        date: '2026-03-01T08:00:00.000Z',
+        action: 'CREATED',
+        details: {},
+      },
+    ],
   },
 ];
 
@@ -179,7 +212,7 @@ function installFetchMock() {
     }
 
     if (url.includes('/access_matrix/matrix.php')) {
-      return json({ status: 'success', matrix: DEFAULT_MATRIX });
+      return json({ status: 'success', matrix: matrixResponse });
     }
 
     if (url.includes('/inventory/rooms.php')) {
@@ -193,6 +226,14 @@ function installFetchMock() {
     if (url.includes('/service_requests/requests.php')) {
       if (method === 'GET') {
         return json({ status: 'success', requests });
+      }
+
+      return json({ status: 'success', message: 'ok' });
+    }
+
+    if (url.includes('/inventory/items_management.php')) {
+      if (method === 'GET') {
+        return json({ status: 'success', items: managedItems });
       }
 
       return json({ status: 'success', message: 'ok' });
@@ -256,6 +297,7 @@ function renderApp() {
 
 describe('access matrix integration', () => {
   beforeEach(() => {
+    matrixResponse = cloneMatrix();
     installFetchMock();
   });
 
@@ -333,8 +375,36 @@ describe('access matrix integration', () => {
     expect(await screen.findByRole('heading', { name: /Portal Inventory Panderman/i })).toBeInTheDocument();
   });
 
+  it('shows item management as a dedicated row in the access matrix panel', async () => {
+    bootstrapSession(users[0], '/admin/users');
+
+    const user = userEvent.setup();
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/admin/users');
+    });
+
+    await user.click(await screen.findByRole('button', { name: /Matriks Akses/i }));
+
+    expect(await screen.findByText('Manajemen Barang')).toBeInTheDocument();
+  });
+
+  it('uses item management permission instead of room permission for the items route', async () => {
+    matrixResponse.rooms.guru = 'full';
+    matrixResponse.item_management.guru = 'none';
+    bootstrapSession(users[2], '/dashboard/items');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/dashboard');
+    });
+    expect(await screen.findByText(/PORTAL INVENTORY LAB/i)).toBeInTheDocument();
+  });
+
   it('allows sarpras into service requests but blocks operations', async () => {
-    bootstrapSession(users[3], '/dashboard/service-requests');
+    bootstrapSession(users[4], '/dashboard/service-requests');
 
     const { unmount } = renderApp();
 
@@ -344,12 +414,39 @@ describe('access matrix integration', () => {
     expect(await screen.findByText('PC Siswa 01')).toBeInTheDocument();
 
     unmount();
-    bootstrapSession(users[3], '/dashboard/operations');
+    bootstrapSession(users[4], '/dashboard/operations');
     renderApp();
 
     await waitFor(() => {
       expect(window.location.pathname).toBe('/dashboard');
     });
+  });
+
+  it('keeps item management actions visible for sarpras even when stored matrix still says view', async () => {
+    matrixResponse.item_management.sarpras = 'view';
+    bootstrapSession(users[4], '/dashboard/items');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/dashboard/items');
+    });
+    expect(await screen.findByText('PC Siswa 01')).toBeInTheDocument();
+    expect(screen.getByTitle('Nonaktifkan (Soft Delete)')).toBeInTheDocument();
+  });
+
+  it('keeps kepala lab in view-only mode on service requests', async () => {
+    bootstrapSession(users[3], '/dashboard/service-requests');
+
+    renderApp();
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/dashboard/service-requests');
+    });
+    expect(await screen.findByText('PC Siswa 01')).toBeInTheDocument();
+    expect(screen.queryByTitle('Accept')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Deny')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Mark Complete')).not.toBeInTheDocument();
   });
 
   it('rejects invalid password on login', async () => {

@@ -10,6 +10,7 @@ export type FeatureKey =
     | 'rooms'
     | 'item_management'
     | 'service_requests'
+    | 'item_management'
     | 'operations'
     | 'reports'
     | 'print_assets'
@@ -33,6 +34,7 @@ export const ACCESS_MATRIX_FEATURES: FeatureKey[] = [
 ];
 
 export const DEFAULT_MATRIX: AccessMatrix = {
+<<<<<<< HEAD
     dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'full' },
     rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view', admin_nl: 'full' },
     item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view', admin_nl: 'full' },
@@ -43,6 +45,29 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
     system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
     asset_accounting: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'full', sarpras: 'none', admin_nl: 'none' },
+=======
+    dashboard: { admin: 'full', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'full', sarpras: 'full' },
+    rooms: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'view' },
+    service_requests: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'view', sarpras: 'full' },
+    item_management: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'view', sarpras: 'full' },
+    operations: { admin: 'none', kepala_lab: 'full', guru: 'full', kepala_sekolah: 'none', sarpras: 'none' },
+    reports: { admin: 'none', kepala_lab: 'full', guru: 'none', kepala_sekolah: 'full', sarpras: 'full' },
+    print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full' },
+    user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
+    system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none' },
+>>>>>>> 71543160f3249b1d47dc1a8f7bab854c1039bdfb
+};
+
+const getLockedAccessLevel = (feature: FeatureKey, role: UserRole): AccessLevel | null => {
+    if (role === 'admin') {
+        return DEFAULT_MATRIX[feature][role];
+    }
+
+    if (feature === 'item_management' && role === 'sarpras') {
+        return DEFAULT_MATRIX[feature][role];
+    }
+
+    return null;
 };
 
 export const FEATURE_LABELS: Record<FeatureKey, string> = {
@@ -50,6 +75,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
     rooms: 'Ruangan & Inventaris',
     item_management: 'Manajemen Barang',
     service_requests: 'Permintaan Layanan',
+    item_management: 'Manajemen Barang',
     operations: 'Operasional',
     reports: 'Laporan Bulanan',
     print_assets: 'Cetak Label, Kartu & Kode',
@@ -71,6 +97,12 @@ const normalizeMatrix = (raw: unknown): AccessMatrix => {
         if (!featureSource || typeof featureSource !== 'object') continue;
 
         for (const role of Object.keys(DEFAULT_MATRIX[feature]) as UserRole[]) {
+            const lockedLevel = getLockedAccessLevel(feature, role);
+            if (lockedLevel !== null) {
+                next[feature][role] = lockedLevel;
+                continue;
+            }
+
             const candidate = (featureSource as Partial<Record<UserRole, AccessLevel>>)[role];
             if (candidate === 'full' || candidate === 'view' || candidate === 'none') {
                 next[feature][role] = candidate;
