@@ -15,8 +15,19 @@ interface AuthContextType {
     refreshUsers: () => Promise<void>;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api')
+// In development (npm run dev), always use relative path so Vite's proxy
+// (configured in vite.config.ts) forwards to the Docker backend on :80.
+// This avoids hard-coded ports in .env that can point to wrong backend (e.g. :8000).
+const API_BASE_URL = import.meta.env.DEV
+  ? '/public/api'
+  : (import.meta.env.VITE_API_BASE_URL ?? '/public/api');
+
 const LOGIN_ENDPOINT = `${API_BASE_URL}/auth/login.php`;
+
+if (import.meta.env.DEV) {
+  console.log('[AuthContext] Using API_BASE_URL:', API_BASE_URL);
+  console.log('[AuthContext] LOGIN_ENDPOINT (the one at line 124):', LOGIN_ENDPOINT);
+}
 const USERS_ENDPOINT = `${API_BASE_URL}/users/users.php`;
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

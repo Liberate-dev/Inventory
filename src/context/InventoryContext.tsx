@@ -6,7 +6,7 @@ import { getAuthHeaders, getAuthToken } from '../utils/api';
 import { useToast } from './ToastContext';
 import { useNotifications } from './NotificationContext';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
 const ROOMS_ENDPOINT = `${API_BASE_URL}/inventory/rooms.php`;
 
 interface InventoryStats {
@@ -33,6 +33,10 @@ interface InventoryContextType {
     deleteContainer: (roomId: string, containerId: string) => Promise<void>;
     reorderContainers: (roomId: string, containerIds: string[]) => Promise<void>;
     refreshRooms: () => Promise<void>;
+
+    schedulePreventiveMaintenance: (itemId: string, recommendedDate: string, reason: string, source: 'ai' | 'manual') => Promise<void>;
+    completePreventiveMaintenance: (itemId: string) => Promise<void>;
+    cancelPreventiveMaintenance: (itemId: string, cancelReason: string) => Promise<void>;
 
     stats: InventoryStats;
     recentLogs: { roomId: string; roomName: string; itemName: string; log: ItemLog }[];
@@ -540,6 +544,114 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
 
     const getRoom = (id: string) => rooms.find(r => r.id === id);
 
+    // === Preventive Maintenance log persistence (accurate, via item_logs) ===
+    const appendLogLocally = useCallback((itemId: string, log: ItemLog) => {
+        setRooms(prev => prev.map(room => ({
+            ...room,
+            containers: room.containers.map(container => ({
+                ...container,
+                items: container.items.map(item =>
+                    item.id === itemId
+                        ? { ...item, logs: [log, ...(item.logs || [])] }
+                        : item
+                )
+            }))
+        })));
+    }, [setRooms]);
+
+    const schedulePreventiveMaintenance = useCallback(async (
+        itemId: string,
+        recommendedDate: string,
+        reason: string,
+        source: 'ai' | 'manual'
+    ) => {
+        const payload = {
+            action: 'schedule',
+            itemId,
+            recommendedDate,
+            reason: reason.trim(),
+            source
+        };
+
+        const res = await fetch(`${API_BASE_URL}/inventory/preventive_maintenance.php`, {
+            method: 'POST',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Failed to schedule preventive maintenance');
+        }
+
+        const log: ItemLog = {
+            id: `pm-sched-${Date.now()}`,
+            date: new Date().toISOString(),
+            action: 'PREVENTIVE_MAINTENANCE_SCHEDULED',
+            details: JSON.stringify({ recommendedDate, reason: reason.trim(), source })
+        };
+
+        appendLogLocally(itemId, log);
+    }, [API_BASE_URL, appendLogLocally, getAuthHeaders]);
+
+    const completePreventiveMaintenance = useCallback(async (itemId: string) => {
+        const res = await fetch(`${API_BASE_URL}/inventory/preventive_maintenance.php`, {
+            method: 'POST',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ action: 'complete', itemId })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Failed to complete');
+        }
+
+        const log: ItemLog = {
+            id: `pm-comp-${Date.now()}`,
+            date: new Date().toISOString(),
+            action: 'PREVENTIVE_MAINTENANCE_COMPLETED',
+            details: JSON.stringify({ completedAt: new Date().toISOString() })
+        };
+
+        appendLogLocally(itemId, log);
+
+        // Reflect completion accurately: reset condition/status to good if it was in maintenance
+        setRooms(prev => prev.map(room => ({
+            ...room,
+            containers: room.containers.map(cont => ({
+                ...cont,
+                items: cont.items.map(it =>
+                    it.id === itemId && (it.condition === 'service' || it.status === 'maintenance')
+                        ? { ...it, condition: 'good' as ComponentCondition, status: 'good' as ComponentStatus }
+                        : it
+                )
+            }))
+        })));
+    }, [API_BASE_URL, appendLogLocally, getAuthHeaders, setRooms]);
+
+    const cancelPreventiveMaintenance = useCallback(async (itemId: string, cancelReason: string) => {
+        const res = await fetch(`${API_BASE_URL}/inventory/preventive_maintenance.php`, {
+            method: 'POST',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ action: 'cancel', itemId, cancelReason: cancelReason.trim() })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || 'Failed to cancel');
+        }
+
+        const log: ItemLog = {
+            id: `pm-cancel-${Date.now()}`,
+            date: new Date().toISOString(),
+            action: 'PREVENTIVE_MAINTENANCE_CANCELLED',
+            details: JSON.stringify({ cancelReason: cancelReason.trim(), cancelledAt: new Date().toISOString() })
+        };
+
+        appendLogLocally(itemId, log);
+    }, [API_BASE_URL, appendLogLocally, getAuthHeaders]);
+    // === END preventive methods ===
+
     const value = useMemo(() => ({
         rooms: filteredRooms,
         addRoom,
@@ -552,11 +664,23 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         deleteContainer,
         reorderContainers,
         refreshRooms: () => fetchRooms(false),
+        schedulePreventiveMaintenance,
+        completePreventiveMaintenance,
+        cancelPreventiveMaintenance,
         stats,
         recentLogs,
         loading,
         error
-    }), [filteredRooms, stats, recentLogs, loading, error]);
+    }), [
+        filteredRooms,
+        stats,
+        recentLogs,
+        loading,
+        error,
+        schedulePreventiveMaintenance,
+        completePreventiveMaintenance,
+        cancelPreventiveMaintenance
+    ]);
 
     return (
         <InventoryContext.Provider value={value}>

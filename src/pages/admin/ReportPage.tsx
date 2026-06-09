@@ -63,7 +63,7 @@ type ItemHistorySource = {
     logs?: ItemLog[];
 };
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
 const ITEMS_API_ENDPOINT = `${API_BASE_URL}/inventory/items_management.php`;
 
 const parseDetails = (raw: unknown): Record<string, unknown> => {

@@ -20,7 +20,7 @@ interface ServiceRequestContextType {
     refreshRequests: () => Promise<void>;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
 const REQUESTS_ENDPOINT = `${API_BASE_URL}/service_requests/requests.php`;
 
 const ServiceRequestContext = createContext<ServiceRequestContextType | undefined>(undefined);

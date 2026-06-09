@@ -26,11 +26,7 @@ const ItemManagementPage = ({ embedded = false }: { embedded?: boolean }) => {
     const [search, setSearch] = useState('');
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
-<<<<<<< HEAD
-    const canManagerItems = user ? canEditFeature('item_management', user.role) : false;
-=======
     const canManageItems = user ? canEditFeature('item_management', user.role) : false;
->>>>>>> 71543160f3249b1d47dc1a8f7bab854c1039bdfb
 
     const fetchItems = async () => {
         setLoading(true);

@@ -24,7 +24,7 @@ interface ItemFormData {
 
 export const useItemForm = (initialItem?: Item | null) => {
     void initialItem;
-    const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+    const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
     const INVENTORY_CODES_ENDPOINT = `${API_BASE_URL}/inventory/inventory_codes.php`;
 
     const defaultState: ItemFormData = {

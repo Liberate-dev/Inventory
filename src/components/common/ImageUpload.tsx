@@ -14,7 +14,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({ value, onChange, label
     const [preview, setPreview] = useState<string | null>(value || null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+    const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
     const UPLOAD_ENDPOINT = `${API_BASE_URL}/inventory/upload.php`;
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

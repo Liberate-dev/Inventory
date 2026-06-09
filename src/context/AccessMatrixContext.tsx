@@ -74,7 +74,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
     user_management: 'Manajemen Pengguna',
     system_logs: 'Log Sistem',
     asset_accounting: 'Akuntansi Aset Tetap',
-    preventive_maintenance: 'Pemeliharaan Preventif',
+    preventive_maintenance: 'Pemeliharaan',
     disposal: 'Disposal / Pelepasan Aset',
 };
 

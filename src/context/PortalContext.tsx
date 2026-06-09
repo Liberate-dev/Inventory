@@ -9,7 +9,7 @@ interface PortalContextType {
     setPortalType: (type: PortalType) => void;
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
 const PREFERENCES_ENDPOINT = `${API_BASE_URL}/preferences/preferences.php`;
 
 const PortalContext = createContext<PortalContextType | undefined>(undefined);

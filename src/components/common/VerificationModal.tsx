@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { X, Check, ShieldCheck } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/public/api').replace(/\/+$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
 const USERS_ENDPOINT = `${API_BASE_URL}/users/users.php`;
 
 interface VerificationModalProps {

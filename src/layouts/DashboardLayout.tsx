@@ -32,7 +32,7 @@ const DashboardLayout = () => {
         { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', feature: 'operations' as FeatureKey },
         { icon: FileText, label: t('reports'), path: '/dashboard/reports', feature: 'reports' as FeatureKey },
         { icon: Printer, label: t('print_assets'), path: '/dashboard/print-assets', feature: 'print_assets' as FeatureKey },
-        { icon: Wrench, label: 'Pemeliharaan Preventif', path: '/dashboard/preventive-maintenance', feature: 'preventive_maintenance' as FeatureKey },
+        { icon: Wrench, label: 'Pemeliharaan', path: '/dashboard/preventive-maintenance', feature: 'preventive_maintenance' as FeatureKey },
         { icon: Trash2, label: 'Disposal / Pelepasan', path: '/dashboard/disposal', feature: 'disposal' as FeatureKey },
         { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', feature: 'user_management' as FeatureKey },
         { icon: User, label: t('my_profile'), path: '/dashboard/profile', feature: null },
