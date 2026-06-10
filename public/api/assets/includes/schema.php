@@ -36,8 +36,88 @@ function assetExecIgnore(PDO $db, string $sql): void
     }
 }
 
+function assetSqlInitPath(string $filename): ?string
+{
+    $candidates = [
+        __DIR__ . '/../../../../docker/mysql/init/' . $filename,
+        '/var/www/html/Inventory/docker/mysql/init/' . $filename,
+    ];
+
+    foreach ($candidates as $path) {
+        if (is_readable($path)) {
+            return $path;
+        }
+    }
+
+    return null;
+}
+
+function assetRunSqlInitFile(PDO $db, string $filename): void
+{
+    $path = assetSqlInitPath($filename);
+    if ($path === null) {
+        return;
+    }
+
+    $sql = file_get_contents($path);
+    if ($sql === false) {
+        return;
+    }
+
+    $sql = preg_replace('/^--.*$/m', '', $sql);
+    $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql);
+
+    foreach ($statements as $statement) {
+        $statement = trim($statement);
+        if ($statement === '' || preg_match('/^(SET|START TRANSACTION|COMMIT)\b/i', $statement)) {
+            continue;
+        }
+
+        assetExecIgnore($db, $statement);
+    }
+}
+
+function assetEnsureAdminNlUser(PDO $db): void
+{
+    if (!assetTableExists($db, 'users')) {
+        return;
+    }
+
+    $stmt = $db->prepare("SELECT id FROM users WHERE username = 'admin_nl' LIMIT 1");
+    $stmt->execute();
+    if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+        return;
+    }
+
+    $passwordHash = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi';
+    $insert = $db->prepare("
+        INSERT INTO users (id, username, password, email, name, phone, role, lab_scope, avatar_url, created_at)
+        VALUES (16, 'admin_nl', :password, 'adminnl@school.com', 'Admin Non Lab', '081200000016', 'admin_nl', NULL, NULL, '2026-03-01 07:00:00')
+        ON DUPLICATE KEY UPDATE role = 'admin_nl'
+    ");
+    $insert->execute(['password' => $passwordHash]);
+}
+
+function assetBootstrapSchema(PDO $db): void
+{
+    assetEnsureAdminNlUser($db);
+
+    if (!assetTableExists($db, 'asset_categories')) {
+        assetRunSqlInitFile($db, '3-assets-schema.sql');
+    }
+
+    if (assetTableExists($db, 'asset_categories')) {
+        $count = (int) $db->query('SELECT COUNT(*) FROM asset_categories')->fetchColumn();
+        if ($count === 0) {
+            assetRunSqlInitFile($db, '4-assets-seed.sql');
+        }
+    }
+}
+
 function assetEnsureSchema(PDO $db): void
 {
+    assetBootstrapSchema($db);
+
     if (assetTableExists($db, 'users')) {
         $userRoleColumn = assetColumn($db, 'users', 'role');
         if ($userRoleColumn && strpos((string) $userRoleColumn['Type'], "'admin_nl'") === false) {

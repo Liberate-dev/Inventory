@@ -689,9 +689,9 @@ function disposeAsset(PDO $db): void {
         echo json_encode(['status' => 'error', 'message' => 'Asset, date, method, and reason are required.']);
         return;
     }
-    if (strtotime($disposalDate) === false || strtotime($disposalDate) > strtotime(date('Y-m-d'))) {
+    if (strtotime($disposalDate) === false || strtotime($disposalDate) < strtotime(date('Y-m-d'))) {
         http_response_code(400);
-        echo json_encode(['status' => 'error', 'message' => 'Disposal date is invalid or in the future.']);
+        echo json_encode(['status' => 'error', 'message' => 'Tanggal pelepasan tidak valid atau sudah lewat. Pilih hari ini atau tanggal mendatang.']);
         return;
     }
     if ($proceeds < 0) {

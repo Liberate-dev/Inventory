@@ -6,6 +6,13 @@ SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 
 -- --------------------------------------------------------
+-- Admin Non-Lab user (required by sample asset seed data)
+-- --------------------------------------------------------
+INSERT INTO `users` (`id`, `username`, `password`, `email`, `name`, `phone`, `role`, `lab_scope`, `avatar_url`, `created_at`) VALUES
+(16, 'admin_nl', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'adminnl@school.com', 'Admin Non Lab', '081200000016', 'admin_nl', NULL, NULL, '2026-03-01 07:00:00')
+ON DUPLICATE KEY UPDATE `role` = 'admin_nl';
+
+-- --------------------------------------------------------
 -- Default Asset Categories
 -- --------------------------------------------------------
 INSERT INTO `asset_categories` (`name`, `gl_account_code`, `accumulated_dep_account_code`, `depreciation_expense_account_code`, `default_depreciation_method`, `default_useful_life_months`, `default_salvage_value_pct`, `default_depreciation_rate`, `capitalization_threshold`, `is_depreciable`, `is_active`) VALUES

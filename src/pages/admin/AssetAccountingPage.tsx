@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useAssetAccounting, type Asset, type AssetCategory, type FundingSource } from '../../context/AssetAccountingContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
+import { getAuthHeaders } from '../../utils/api';
 import AssetForm from './AssetForm';
 import DepreciationRun from './DepreciationRun';
 import DocumentNumberManagementPage from './DocumentNumberManagementPage';
@@ -89,7 +90,7 @@ export default function AssetAccountingPage() {
     error
   } = useAssetAccounting();
   const { user } = useAuth();
-  const { canEditFeature } = useAccessMatrix();
+  const { canEditFeature, getAccess } = useAccessMatrix();
   const [activeTab, setActiveTab] = useState<Tab>('assets');
   const [searchTerm, setSearchTerm] = useState('');
   const [showAssetForm, setShowAssetForm] = useState(false);
@@ -100,7 +101,9 @@ export default function AssetAccountingPage() {
   const [actionAsset, setActionAsset] = useState<Asset | null>(null);
   const [actionType, setActionType] = useState<'inactive' | 'reactivate' | 'dispose' | null>(null);
 
+  const accessLevel = user ? getAccess('asset_accounting', user.role) : 'none';
   const canEdit = user ? canEditFeature('asset_accounting', user.role) : false;
+  const isViewOnly = accessLevel === 'view';
 
   useEffect(() => {
     fetchCategories();
@@ -156,6 +159,12 @@ export default function AssetAccountingPage() {
           </button>
         ))}
       </div>
+
+      {isViewOnly && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+          Mode akses: <span className="font-semibold">View</span>. Anda dapat melihat data dan laporan, tetapi tidak dapat menambah atau mengubah aset.
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (
@@ -458,7 +467,11 @@ function AssetActionModal({
       ? 'Alasan pelepasan'
       : 'Alasan tidak aktif';
 
-  const isSubmitDisabled = submitting || !reason.trim() || (actionType === 'dispose' && needsDocument && !documentReference.trim());
+  const isDisposalDateInvalid = actionType === 'dispose' && date < today;
+  const isSubmitDisabled = submitting
+    || !reason.trim()
+    || isDisposalDateInvalid
+    || (actionType === 'dispose' && needsDocument && !documentReference.trim());
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -482,10 +495,14 @@ function AssetActionModal({
               <input
                 type="date"
                 value={date}
-                max={today}
+                min={actionType === 'dispose' ? today : undefined}
+                max={actionType === 'dispose' ? undefined : today}
                 onChange={e => setDate(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20"
               />
+              {isDisposalDateInvalid && (
+                <p className="mt-1 text-xs text-red-600">Tanggal pelepasan tidak boleh sebelum hari ini.</p>
+              )}
             </div>
           )}
 
@@ -598,6 +615,9 @@ function CategoriesTab({ categories, loading }: { categories: AssetCategory[]; l
 }
 
 function ReportsTab() {
+  const { user } = useAuth();
+  const { canSee } = useAccessMatrix();
+  const canViewReports = user ? canSee('asset_accounting', user.role) : false;
   const today = new Date().toISOString().split('T')[0];
   const currentYear = String(new Date().getFullYear());
   const currentMonth = String(new Date().getMonth() + 1);
@@ -617,6 +637,11 @@ function ReportsTab() {
   const reportTitle = REPORT_OPTIONS.find(option => option.id === reportType)?.label ?? 'Laporan Aset';
 
   const generateReport = async () => {
+    if (!canViewReports) {
+      setError('Anda tidak memiliki akses untuk membuat laporan aset.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -742,7 +767,7 @@ function ReportsTab() {
           <button
             onClick={generateReport}
             className="px-4 py-2 bg-[#000080] text-white rounded-lg hover:bg-[#000060] disabled:opacity-50"
-            disabled={loading}
+            disabled={loading || !canViewReports}
           >
             {loading ? 'Memuat...' : 'Generate Laporan'}
           </button>
@@ -1025,12 +1050,4 @@ function renderReportBody(reportType: AssetReportType, reportData: ReportPayload
   );
 }
 
-function getAuthHeaders(headers?: Record<string, string>): Record<string, string> {
-  const token = localStorage.getItem('auth_token');
-  const base = new Headers(headers);
-  if (token) {
-    base.set('Authorization', `Bearer ${token}`);
-    base.set('X-Auth-Token', token);
-  }
-  return Object.fromEntries(base.entries());
-}
+

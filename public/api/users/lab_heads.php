@@ -22,8 +22,8 @@ if ($method !== 'GET') {
     exit;
 }
 
-// Auth required but no specific feature needed - any logged in user can see lab heads
 $authUser = authCurrentUser($db, true);
+authRequireFeature($db, 'asset_accounting', 'view');
 
 try {
     $stmt = $db->prepare("

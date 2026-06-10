@@ -33,6 +33,8 @@ services:
       # Auto-run SQL scripts on container start if database is empty
       - ./docker/mysql/init/1-schema.sql:/docker-entrypoint-initdb.d/1-schema.sql
       - ./docker/mysql/init/2-seed.sql:/docker-entrypoint-initdb.d/2-seed.sql
+      - ./docker/mysql/init/3-assets-schema.sql:/docker-entrypoint-initdb.d/3-assets-schema.sql
+      - ./docker/mysql/init/4-assets-seed.sql:/docker-entrypoint-initdb.d/4-assets-seed.sql
 
   # phpMyAdmin for managing the database visually
   phpmyadmin:

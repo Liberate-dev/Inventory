@@ -8,15 +8,16 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 export default function DepreciationRun() {
   const { previewDepreciation, postDepreciation, depreciationPreview, loading, error } = useAssetAccounting();
   const { user } = useAuth();
-  const { canEditFeature } = useAccessMatrix();
+  const { canEditFeature, canSee } = useAccessMatrix();
   const [step, setStep] = useState(1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [posting, setPosting] = useState(false);
   const [postedResult, setPostedResult] = useState<any>(null);
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
+  const canPreview = user ? canSee('asset_accounting', user.role) : false;
   const canPost = user ? canEditFeature('asset_accounting', user.role) : false;
-  const canSeeJournals = canPost;
+  const canSeeJournals = canPreview;
 
   const handlePreview = async () => {
     await previewDepreciation(selectedYear, selectedMonth);
@@ -125,10 +126,10 @@ export default function DepreciationRun() {
             </div>
             <button
               onClick={handlePreview}
-              disabled={loading}
+              disabled={loading || !canPreview}
               className="mt-6 px-6 py-2 bg-[#000080] text-white rounded-lg hover:bg-[#000060] disabled:opacity-50"
             >
-              {loading ? 'Memuat...' : 'Preview'}
+              {loading ? 'Memuat...' : !canPreview ? 'Tidak Ada Akses' : 'Preview'}
             </button>
           </div>
         </div>
@@ -173,16 +174,18 @@ export default function DepreciationRun() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="w-12 px-4 py-3">
-                      <div className="flex items-center justify-center">
-                        <input
-                          type="checkbox"
-                          checked={depreciationPreview.items.length > 0 && depreciationPreview.items.every(i => isItemSelected(i.asset_id, i.is_included))}
-                          onChange={e => toggleAll(e.target.checked)}
-                          className="w-4 h-4 accent-[#000080] cursor-pointer"
-                        />
-                      </div>
-                    </th>
+                    {canPost && (
+                      <th className="w-12 px-4 py-3">
+                        <div className="flex items-center justify-center">
+                          <input
+                            type="checkbox"
+                            checked={depreciationPreview.items.length > 0 && depreciationPreview.items.every(i => isItemSelected(i.asset_id, i.is_included))}
+                            onChange={e => toggleAll(e.target.checked)}
+                            className="w-4 h-4 accent-[#000080] cursor-pointer"
+                          />
+                        </div>
+                      </th>
+                    )}
                     <th className="text-left px-4 py-3 font-medium text-slate-600">No. Aset</th>
                     <th className="text-left px-4 py-3 font-medium text-slate-600">Nama Aset</th>
                     <th className="text-right px-4 py-3 font-medium text-slate-600">Nilai Buku Awal</th>
@@ -196,17 +199,19 @@ export default function DepreciationRun() {
                     const isSelected = isItemSelected(item.asset_id, item.is_included);
                     return (
                     <tr key={item.asset_id} className={!isSelected ? 'opacity-60' : ''}>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={!item.is_included}
-                            onChange={() => toggleItem(String(item.asset_id))}
-                            className="w-4 h-4 accent-[#000080] cursor-pointer"
-                          />
-                        </div>
-                      </td>
+                      {canPost && (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={!item.is_included}
+                              onChange={() => toggleItem(String(item.asset_id))}
+                              className="w-4 h-4 accent-[#000080] cursor-pointer"
+                            />
+                          </div>
+                        </td>
+                      )}
                       <td className="px-4 py-3 font-mono">{item.asset_number}</td>
                       <td className="px-4 py-3">{item.asset_name}</td>
                       <td className="px-4 py-3 text-right font-mono">{formatCurrency(item.opening_book_value)}</td>
@@ -230,26 +235,27 @@ export default function DepreciationRun() {
               </table>
             </div>
 
-            {/* Selection Summary */}
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={depreciationPreview.items.length > 0 && depreciationPreview.items.every(i => isItemSelected(i.asset_id, i.is_included))}
-                  onChange={e => toggleAll(e.target.checked)}
-                  className="w-4 h-4 accent-[#000080] cursor-pointer"
-                />
-                <span className="text-sm text-slate-600">
-                  Dipilih: <span className="font-semibold text-slate-800">{getSelectedCount()}</span> dari {depreciationPreview.items.length} aset
-                </span>
+            {canPost && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={depreciationPreview.items.length > 0 && depreciationPreview.items.every(i => isItemSelected(i.asset_id, i.is_included))}
+                    onChange={e => toggleAll(e.target.checked)}
+                    className="w-4 h-4 accent-[#000080] cursor-pointer"
+                  />
+                  <span className="text-sm text-slate-600">
+                    Dipilih: <span className="font-semibold text-slate-800">{getSelectedCount()}</span> dari {depreciationPreview.items.length} aset
+                  </span>
+                </div>
+                <button
+                  onClick={() => toggleAll(false)}
+                  className="text-sm text-blue-600 hover:text-blue-800"
+                >
+                  Hapus Semua
+                </button>
               </div>
-              <button
-                onClick={() => toggleAll(false)}
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                Hapus Semua
-              </button>
-            </div>
+            )}
 
             {/* Journal Preview */}
             {canSeeJournals && depreciationPreview.journal_preview && depreciationPreview.journal_preview.length > 0 && (
@@ -281,7 +287,6 @@ export default function DepreciationRun() {
               </div>
             )}
 
-            {/* Action */}
             <div className="mt-6 flex justify-end gap-3">
               <button
                 onClick={() => setStep(1)}
@@ -289,13 +294,15 @@ export default function DepreciationRun() {
               >
                 Batal
               </button>
-              <button
-                onClick={handlePost}
-                disabled={!canPost || posting || getSelectedCount() === 0}
-                className="px-6 py-2 bg-[#000080] text-white rounded-lg hover:bg-[#000060] disabled:opacity-50"
-              >
-                {!canPost ? 'Tidak Ada Akses Posting' : posting ? 'Memposting...' : `Posting Penyusutan (${getSelectedCount()} aset)`}
-              </button>
+              {canPost && (
+                <button
+                  onClick={handlePost}
+                  disabled={posting || getSelectedCount() === 0}
+                  className="px-6 py-2 bg-[#000080] text-white rounded-lg hover:bg-[#000060] disabled:opacity-50"
+                >
+                  {posting ? 'Memposting...' : `Posting Penyusutan (${getSelectedCount()} aset)`}
+                </button>
+              )}
             </div>
           </div>
         </div>

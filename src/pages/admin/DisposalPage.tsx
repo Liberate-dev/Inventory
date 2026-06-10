@@ -24,9 +24,14 @@ export default function DisposalPage() {
 
   const canCreate = user ? canEditFeature('disposal', user.role) : false;
   const canApprove = user ? canEditFeature('disposal', user.role) : false; // kepala_sekolah full
+  const today = new Date().toISOString().split('T')[0];
 
   const handleCreate = () => {
     if (!formData.itemName || !formData.reason || !formData.proposedDate) return;
+    if (formData.proposedDate < today) {
+      alert('Tanggal pengajuan disposal tidak boleh sebelum hari ini.');
+      return;
+    }
     const newReq: DisposalRequest = {
       id: 'd' + Date.now(),
       ...formData,
@@ -84,7 +89,13 @@ export default function DisposalPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <input className="border p-2 rounded" placeholder="Nama Item / Aset" value={formData.itemName} onChange={e => setFormData({...formData, itemName: e.target.value})} />
             <input className="border p-2 rounded" placeholder="Alasan" value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} />
-            <input type="date" className="border p-2 rounded" value={formData.proposedDate} onChange={e => setFormData({...formData, proposedDate: e.target.value})} />
+            <input
+              type="date"
+              min={today}
+              className="border p-2 rounded"
+              value={formData.proposedDate}
+              onChange={e => setFormData({ ...formData, proposedDate: e.target.value })}
+            />
           </div>
           <button onClick={handleCreate} className="mt-4 px-6 py-2 bg-emerald-600 text-white rounded">Ajukan (akan ditahan sampai jadwal)</button>
           <p className="text-xs text-slate-500 mt-2">Setelah disetujui, sistem akan mengingatkan mendekati tanggal dan mengeksekusi soft delete + notif pada tanggal tersebut. Bisa dibatalkan sebelum eksekusi.</p>

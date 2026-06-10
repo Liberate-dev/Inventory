@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getAuthHeaders } from '../../utils/api';
+import { useAuth } from '../../context/AuthContext';
+import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import type { Asset, AssetCategory, FundingSource } from '../../context/AssetAccountingContext';
 import { getDefaultDepreciationStartDate } from '../../utils/assetDocumentNumber';
 
@@ -46,6 +48,10 @@ interface AssetFormProps {
 }
 
 export default function AssetForm({ asset, categories, onClose, onSuccess }: AssetFormProps) {
+  const { user } = useAuth();
+  const { canEditFeature, canSee } = useAccessMatrix();
+  const canViewAssets = user ? canSee('asset_accounting', user.role) : false;
+  const canManageAssets = user ? canEditFeature('asset_accounting', user.role) : false;
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -368,13 +374,31 @@ export default function AssetForm({ asset, categories, onClose, onSuccess }: Ass
 
   const depreciationCalc = calculateDepreciation();
 
+  if (!canViewAssets) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 text-center">
+          <h2 className="text-lg font-semibold text-slate-800 mb-2">Akses Ditolak</h2>
+          <p className="text-sm text-slate-600 mb-4">
+            Anda tidak memiliki akses ke detail aset melalui matriks Akuntansi Aset Tetap.
+          </p>
+          <button onClick={onClose} className="px-4 py-2 bg-[#000080] text-white rounded-lg hover:bg-[#000060]">
+            Tutup
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const isReadOnly = !canManageAssets;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-slate-800">
-            {isEditing ? 'Edit Aset' : 'Tambah Aset Baru'}
+            {isReadOnly ? 'Detail Aset' : isEditing ? 'Edit Aset' : 'Tambah Aset Baru'}
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -402,8 +426,14 @@ export default function AssetForm({ asset, categories, onClose, onSuccess }: Ass
           </div>
         </div>
 
+        {isReadOnly && (
+          <div className="px-6 py-2 bg-amber-50 border-b border-amber-100 text-sm text-amber-800">
+            Mode akses <span className="font-semibold">View</span> — formulir hanya dapat dilihat.
+          </div>
+        )}
+
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[60vh]">
+        <fieldset disabled={isReadOnly} className="p-6 overflow-y-auto max-h-[60vh] border-0 min-w-0">
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               {error}
@@ -840,7 +870,7 @@ export default function AssetForm({ asset, categories, onClose, onSuccess }: Ass
               )}
             </div>
           )}
-        </div>
+        </fieldset>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-200 flex justify-between">
@@ -860,7 +890,7 @@ export default function AssetForm({ asset, categories, onClose, onSuccess }: Ass
                 Lanjut
               </button>
             )}
-            {step === 3 && (
+            {step === 3 && !isReadOnly && (
               <button
                 onClick={handleSubmit}
                 disabled={loading}

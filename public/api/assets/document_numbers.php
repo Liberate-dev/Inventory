@@ -109,12 +109,13 @@ if ($method === 'PUT') {
 }
 
 if ($method === 'POST') {
-    authRequireFeature($db, 'asset_accounting', 'full');
     $action = (string) ($payload['action'] ?? '');
 
     if (!in_array($action, ['preview', 'generate'], true)) {
         respondDocumentNumber(400, ['status' => 'error', 'message' => 'Action tidak didukung.']);
     }
+
+    authRequireFeature($db, 'asset_accounting', $action === 'preview' ? 'view' : 'full');
 
     try {
         $date = isset($payload['date']) ? (string) $payload['date'] : null;

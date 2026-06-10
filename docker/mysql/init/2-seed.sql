@@ -37,7 +37,8 @@ INSERT INTO `users` (`id`, `username`, `password`, `email`, `name`, `phone`, `ro
 (12, 'lab.fisika', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'labfisika@school.com', 'Koordinator Lab Fisika', '081200000012', 'kepala_lab', 'physics', NULL, '2026-03-01 07:00:00'),
 (13, 'lab.biologi', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'labbiologi@school.com', 'Koordinator Lab Biologi', '081200000013', 'kepala_lab', 'biology', NULL, '2026-03-01 07:00:00'),
 (14, 'operator.tu', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'tu@school.com', 'Operator Tata Usaha', '081200000014', 'sarpras', NULL, NULL, '2026-03-01 07:00:00'),
-(15, 'pustakawan', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'library@school.com', 'Pustakawan Sekolah', '081200000015', 'guru', NULL, NULL, '2026-03-01 07:00:00');
+(15, 'pustakawan', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'library@school.com', 'Pustakawan Sekolah', '081200000015', 'guru', NULL, NULL, '2026-03-01 07:00:00'),
+(16, 'admin_nl', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'adminnl@school.com', 'Admin Non Lab', '081200000016', 'admin_nl', NULL, NULL, '2026-03-01 07:00:00');
 
 INSERT INTO `rooms` (`id`, `name`, `category`, `type`, `custom_type`, `capacity`, `created_at`) VALUES
 (1, 'Lab Komputer 1', 'lab', 'computer', NULL, 36, '2026-03-01 07:10:00'),

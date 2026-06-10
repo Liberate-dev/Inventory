@@ -19,7 +19,8 @@ const users = [
   { id: 12, username: 'lab.fisika', email: 'labfisika@school.com', name: 'Koordinator Lab Fisika', phone: '081200000012', role: 'kepala_lab', lab_scope: 'physics' },
   { id: 13, username: 'lab.biologi', email: 'labbiologi@school.com', name: 'Koordinator Lab Biologi', phone: '081200000013', role: 'kepala_lab', lab_scope: 'biology' },
   { id: 14, username: 'operator.tu', email: 'tu@school.com', name: 'Operator Tata Usaha', phone: '081200000014', role: 'sarpras', lab_scope: null },
-  { id: 15, username: 'pustakawan', email: 'library@school.com', name: 'Pustakawan Sekolah', phone: '081200000015', role: 'guru', lab_scope: null }
+  { id: 15, username: 'pustakawan', email: 'library@school.com', name: 'Pustakawan Sekolah', phone: '081200000015', role: 'guru', lab_scope: null },
+  { id: 16, username: 'admin_nl', email: 'adminnl@school.com', name: 'Admin Non Lab', phone: '081200000016', role: 'admin_nl', lab_scope: null }
 ];
 
 const rooms = [

@@ -46,7 +46,7 @@ export const DEFAULT_MATRIX: AccessMatrix = {
     print_assets: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'view', sarpras: 'full', admin_nl: 'none' },
     user_management: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
     system_logs: { admin: 'full', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'none' },
-    asset_accounting: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'full', sarpras: 'none', admin_nl: 'none' },
+    asset_accounting: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'none', sarpras: 'none', admin_nl: 'full' },
     preventive_maintenance: { admin: 'none', kepala_lab: 'view', guru: 'view', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'none' },
     disposal: { admin: 'none', kepala_lab: 'none', guru: 'none', kepala_sekolah: 'full', sarpras: 'full', admin_nl: 'none' },
 };

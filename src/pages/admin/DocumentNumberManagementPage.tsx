@@ -14,13 +14,15 @@ const DOCUMENT_NUMBERS_ENDPOINT = `${API_BASE_URL}/assets/document_numbers.php`;
 
 export default function DocumentNumberManagementPage() {
   const { user } = useAuth();
-  const { canEditFeature } = useAccessMatrix();
+  const { getAccess } = useAccessMatrix();
   const [settings, setSettings] = useState<DocumentNumberSettings>(DEFAULT_DOCUMENT_NUMBER_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const canManage = user ? canEditFeature('asset_accounting', user.role) : false;
+  const accessLevel = user ? getAccess('asset_accounting', user.role) : 'none';
+  const canManage = accessLevel === 'full';
+  const canView = accessLevel !== 'none';
 
   const loadSettings = async () => {
     setLoading(true);
@@ -113,8 +115,22 @@ export default function DocumentNumberManagementPage() {
     return parts.join(settings.separator || '-');
   }, [settings]);
 
+  if (!canView) {
+    return (
+      <div className="p-8 text-center text-slate-500">
+        Anda tidak memiliki akses untuk melihat pengaturan nomor dokumen aset.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {!canManage && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Mode akses <span className="font-semibold">View</span>. Pengaturan nomor dokumen hanya dapat dilihat.
+        </div>
+      )}
+
       {feedback && (
         <div className={`rounded-xl border px-4 py-3 text-sm ${feedback.type === 'success'
           ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -142,7 +158,8 @@ export default function DocumentNumberManagementPage() {
                     type="text"
                     value={settings.prefix}
                     onChange={(event) => setSettings((prev) => ({ ...prev, prefix: event.target.value.toUpperCase().slice(0, 20) }))}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono uppercase"
+                    disabled={!canManage}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono uppercase disabled:bg-slate-50"
                   />
                 </div>
                 <div>
@@ -151,7 +168,8 @@ export default function DocumentNumberManagementPage() {
                     type="text"
                     value={settings.separator}
                     onChange={(event) => setSettings((prev) => ({ ...prev, separator: event.target.value.slice(0, 3) || '-' }))}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono"
+                    disabled={!canManage}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono disabled:bg-slate-50"
                   />
                 </div>
                 <div>
@@ -159,7 +177,8 @@ export default function DocumentNumberManagementPage() {
                   <select
                     value={settings.yearFormat}
                     onChange={(event) => setSettings((prev) => ({ ...prev, yearFormat: event.target.value as DocumentNumberSettings['yearFormat'] }))}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none"
+                    disabled={!canManage}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none disabled:bg-slate-50"
                   >
                     <option value="none">Tanpa Tahun</option>
                     <option value="2">2 Digit (26)</option>
@@ -174,7 +193,8 @@ export default function DocumentNumberManagementPage() {
                     max={8}
                     value={settings.sequencePadding}
                     onChange={(event) => setSettings((prev) => ({ ...prev, sequencePadding: Math.min(8, Math.max(2, Number(event.target.value) || 4)) }))}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono"
+                    disabled={!canManage}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono disabled:bg-slate-50"
                   />
                 </div>
                 <div>
@@ -184,7 +204,8 @@ export default function DocumentNumberManagementPage() {
                     min={1}
                     value={settings.nextNumber}
                     onChange={(event) => setSettings((prev) => ({ ...prev, nextNumber: Math.max(1, Number(event.target.value) || 1) }))}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono"
+                    disabled={!canManage}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#000080]/20 outline-none font-mono disabled:bg-slate-50"
                   />
                 </div>
               </div>
