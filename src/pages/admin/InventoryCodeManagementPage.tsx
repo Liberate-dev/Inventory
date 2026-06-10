@@ -5,7 +5,7 @@ import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { getAuthHeaders } from '../../utils/api';
-import { generateSmartCodeWithAI } from '../../utils/aiClient';
+import { generateSmartCodeWithAI, getAIStatus } from '../../utils/aiClient';
 import { ItemStatusBadge } from '../../components/common/ItemStatusBadge';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
 
@@ -378,6 +378,8 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
         return date.toLocaleDateString('id-ID');
     };
 
+    const aiStatus = getAIStatus();
+
     return (
         <div className="space-y-6">
             {!embedded && (
@@ -412,6 +414,14 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
                         <p className="text-[11px] text-slate-500">
                             <strong>Rumus AI:</strong> <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-indigo-700">[Ruangan]-[Nama Barang]-[Nomor Urut]</code> (Contoh: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">LAB-MEJ-003</code>)
                         </p>
+                        <div className={`inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                            aiStatus.available
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                            <span className={`inline-block w-1.5 h-1.5 rounded-full ${aiStatus.available ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                            {aiStatus.available ? `AI: ${aiStatus.label}` : 'Fallback (set API key di .env)'}
+                        </div>
                     </div>
 
                     <div className="self-start md:self-auto min-w-[200px] flex flex-col gap-2">

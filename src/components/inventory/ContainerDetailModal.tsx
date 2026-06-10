@@ -11,7 +11,7 @@ import { useItemForm } from '../../hooks/useItemForm';
 import { useInventory } from '../../context/InventoryContext';
 import { ItemStatusBadge } from '../common/ItemStatusBadge';
 import { ImageUpload } from '../common/ImageUpload';
-import { suggestCanonicalItemName, generateSmartCodeWithAI } from '../../utils/aiClient';
+import { suggestCanonicalItemName, generateSmartCodeWithAI, getAIStatus } from '../../utils/aiClient';
 import { buildFallbackSmartCode } from '../../utils/inventoryCode';
 import { getAuthHeaders } from '../../utils/api';
 
@@ -460,8 +460,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
         // Last resort fallback
         const fallback = buildFallbackSmartCode(roomName, useName, Math.floor(Math.random() * 100) + 1, 4);
         updateField('sku', fallback);
-        showToast(`Smart kode fallback: ${fallback}`, 'success');
+        showToast(`Kode fallback: ${fallback}`, 'success');
     };
+
+    const aiStatus = getAIStatus();
 
     // Use central managed categories from Manajemen Barang for the dropdown (auto-connect when sarpras adds new categories).
     // Fallback to categories already assigned to existing item types if no managed list yet.
@@ -585,6 +587,20 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                     <h4 className="shrink-0 px-6 pt-6 pb-4 pr-14 text-xl font-bold text-gray-800 border-b border-gray-100">
                                         {isReadOnlyMode ? 'Detail Item' : isEditing ? t('edit_item_details') : t('add_new_item')}
                                     </h4>
+
+                                    {/* AI Status Banner - only show in add mode */}
+                                    {!isEditing && !isReadOnlyMode && (
+                                        <div className={`mx-6 mt-4 px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-medium border ${
+                                            aiStatus.available
+                                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                : 'bg-amber-50 text-amber-700 border-amber-200'
+                                        }`}>
+                                            <Zap size={12} className={aiStatus.available ? 'fill-blue-500 shrink-0' : 'fill-amber-500 shrink-0'} />
+                                            {aiStatus.available
+                                                ? `AI (${aiStatus.label}) aktif — klik ✨ untuk saran nama & kode inventaris otomatis`
+                                                : 'Mode fallback — set VITE_GEMINI_API_KEY di .env untuk AI nama & kode'}
+                                        </div>
+                                    )}
 
                                     <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar px-6 pt-6 pb-6">
 

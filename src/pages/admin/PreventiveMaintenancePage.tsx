@@ -3,9 +3,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { useInventory } from '../../context/InventoryContext';
 import { useNotifications } from '../../context/NotificationContext';
-import { Wrench, Plus, Calendar, Loader2 } from 'lucide-react';
+import { useToast } from '../../context/ToastContext';
+import { Wrench, Calendar, Loader2, Sparkles, Zap } from 'lucide-react';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
-import { getMaintenanceRecommendations, hasAnyAIKey, type RichItemForAI } from '../../utils/aiClient';
+import { getMaintenanceRecommendations, hasAnyAIKey, getAIStatus, type RichItemForAI } from '../../utils/aiClient';
 import type { Room } from '../../types';
 
 interface MaintenanceTask {
@@ -110,6 +111,8 @@ export default function PreventiveMaintenancePage() {
   const { user } = useAuth();
   const { canSee, canEditFeature } = useAccessMatrix();
   const { rooms, schedulePreventiveMaintenance, completePreventiveMaintenance, cancelPreventiveMaintenance } = useInventory();
+  const { showToast } = useToast();
+  const aiStatus = getAIStatus();
 
   // Flatten all items from rooms/containers for dropdown + auto-fill (for manual + AI context)
   // We include sku so that maintenance can be clearly targeted to a specific labeled physical instance
@@ -257,7 +260,7 @@ export default function PreventiveMaintenancePage() {
     const contextItems = buildItemsContextForAI(25);
 
     if (contextItems.length === 0) {
-      alert('Belum ada data inventaris untuk dianalisis atau semua item sudah punya jadwal/rekomendasi aktif.');
+      showToast('Belum ada data inventaris untuk dianalisis atau semua item sudah punya jadwal/rekomendasi aktif.', 'error');
       return;
     }
 
@@ -295,7 +298,7 @@ export default function PreventiveMaintenancePage() {
         });
 
         setPendingAiRecs(prev => [...prev, ...newAI]);
-        alert('Tidak ada API key AI yang diset. Menggunakan simulasi.');
+        showToast('Tidak ada API key AI — menggunakan simulasi. Set key di file .env untuk AI sungguhan.', 'error');
         return;
       }
 
@@ -303,7 +306,7 @@ export default function PreventiveMaintenancePage() {
       const { recommendations, provider } = await getMaintenanceRecommendations(contextItems);
 
       if (!recommendations || recommendations.length === 0) {
-        alert('AI tidak memberikan rekomendasi baru saat ini.');
+        showToast('AI tidak memberikan rekomendasi baru saat ini.', 'error');
         return;
       }
 
@@ -327,8 +330,7 @@ export default function PreventiveMaintenancePage() {
 
       // Friendly feedback which provider actually answered
       const providerLabel = provider === 'gemini' ? 'Gemini' : provider === 'openrouter' ? 'OpenRouter' : provider === 'cerebras' ? 'Cerebras' : 'AI';
-      // Optional: could use toast here instead of alert in future
-      console.info(`Rekomendasi dari ${providerLabel}`);
+      showToast(`✅ ${recommendations.length} rekomendasi dari ${providerLabel}`, 'success');
     } catch (err: any) {
       console.error('AI recommendation error', err);
 
@@ -354,9 +356,9 @@ export default function PreventiveMaintenancePage() {
       setPendingAiRecs(prev => [...prev, ...fallback]);
 
       if (isGeminiQuota) {
-        alert('Gemini free quota habis untuk key ini (limit 0). Sudah pakai simulasi. Buat key baru di AI Studio untuk AI ril.');
+        showToast('Gemini quota habis. Menggunakan simulasi — buat API key baru di AI Studio.', 'error');
       } else {
-        alert('Gagal memanggil AI. Menggunakan simulasi sebagai fallback. Lihat Console untuk detail.');
+        showToast('Gagal memanggil AI. Menggunakan simulasi fallback.', 'error');
       }
     } finally {
       setAiLoading(false);
@@ -371,9 +373,9 @@ export default function PreventiveMaintenancePage() {
     try {
       await schedulePreventiveMaintenance(rec.itemId, rec.recommendedDate, rec.reason, 'ai');
       setPendingAiRecs(prev => prev.filter((r: any) => r.id !== id));
-      alert('Rekomendasi AI diterima dan dijadwalkan (persisted via item log).');
+      showToast('Rekomendasi AI diterima dan dijadwalkan.', 'success');
     } catch (e: any) {
-      alert('Gagal menyimpan jadwal: ' + (e?.message || e));
+      showToast('Gagal menyimpan jadwal: ' + (e?.message || e), 'error');
     }
   };
 
@@ -434,18 +436,18 @@ export default function PreventiveMaintenancePage() {
       );
       setShowManualForm(false);
       setManualForm({ itemId: '', itemName: '', roomName: '', condition: '', sku: '', reason: '', recommendedDate: '' });
-      alert('Jadwal manual berhasil disimpan (persisted).');
+      showToast('Jadwal manual berhasil disimpan.', 'success');
     } catch (e: any) {
-      alert('Gagal menyimpan jadwal manual: ' + (e?.message || e));
+      showToast('Gagal menyimpan jadwal manual: ' + (e?.message || e), 'error');
     }
   };
 
   const markComplete = async (task: MaintenanceTask) => {
     try {
       await completePreventiveMaintenance(task.itemId);
-      alert('Pemeliharaan selesai. Log PREVENTIVE_MAINTENANCE_COMPLETED ditambahkan dan kondisi direset ke good.');
+      showToast('Pemeliharaan selesai. Kondisi item direset ke good.', 'success');
     } catch (e: any) {
-      alert('Gagal menyelesaikan: ' + (e?.message || e));
+      showToast('Gagal menyelesaikan: ' + (e?.message || e), 'error');
     }
   };
 
@@ -472,9 +474,9 @@ export default function PreventiveMaintenancePage() {
       await cancelPreventiveMaintenance(task.itemId, cancelReason.trim());
       setCancellingTaskId(null);
       setCancelReason('');
-      alert('Jadwal dibatalkan (persisted via log).');
+      showToast('Jadwal pemeliharaan dibatalkan.', 'success');
     } catch (e: any) {
-      alert('Gagal membatalkan: ' + (e?.message || e));
+      showToast('Gagal membatalkan: ' + (e?.message || e), 'error');
     }
   };
 
@@ -498,11 +500,11 @@ export default function PreventiveMaintenancePage() {
     if (!current) return;
 
     if (!editForm.reason.trim() || !editForm.recommendedDate) {
-      alert('Alasan dan tanggal harus diisi.');
+      showToast('Alasan dan tanggal harus diisi.', 'error');
       return;
     }
     if (editForm.recommendedDate < today) {
-      alert('Tanggal tidak boleh di masa lalu.');
+      showToast('Tanggal tidak boleh di masa lalu.', 'error');
       return;
     }
 
@@ -516,9 +518,9 @@ export default function PreventiveMaintenancePage() {
       );
       setEditingTaskId(null);
       setEditForm({ reason: '', recommendedDate: '' });
-      alert('Jadwal diperbarui (persisted).');
+      showToast('Jadwal pemeliharaan diperbarui.', 'success');
     } catch (e: any) {
-      alert('Gagal memperbarui jadwal: ' + (e?.message || e));
+      showToast('Gagal memperbarui jadwal: ' + (e?.message || e), 'error');
     }
   };
 
@@ -533,35 +535,44 @@ export default function PreventiveMaintenancePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2"><Wrench /> Pemeliharaan</h1>
-          <p className="text-sm text-slate-500">
-            Rekomendasi dapat dibuat dengan AI
+          <h1 className="text-2xl font-extrabold text-[#000080] flex items-center gap-2"><Wrench /> Pemeliharaan Preventif</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Jadwalkan pemeliharaan barang secara manual atau gunakan AI untuk analisis otomatis.
           </p>
+          {/* AI Provider Status Badge */}
+          <div className={`inline-flex items-center gap-1.5 mt-2 px-2.5 py-1 rounded-full text-xs font-medium ${
+            aiStatus.available
+              ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+              : 'bg-amber-100 text-amber-700 border border-amber-200'
+          }`}>
+            <Zap size={11} className={aiStatus.available ? 'fill-emerald-500' : 'fill-amber-500'} />
+            {aiStatus.available ? `AI: ${aiStatus.label}` : 'AI: Mode Simulasi (set API key di .env)'}
+          </div>
         </div>
         {canManage && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <button
               onClick={generateAIRecommendations}
               disabled={aiLoading}
-              className="px-4 py-2 bg-emerald-600 text-white rounded flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-blue-600 text-white rounded-xl flex items-center gap-2 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed font-semibold text-sm shadow-sm transition-all"
             >
               {aiLoading ? (
                 <>
-                  <Loader2 size={16} className="animate-spin" /> Menganalisis dengan AI...
+                  <Loader2 size={15} className="animate-spin" /> Menganalisis...
                 </>
               ) : (
                 <>
-                  <Plus size={16} /> Minta Rekomendasi AI
+                  <Sparkles size={15} /> Rekomendasi AI
                 </>
               )}
             </button>
             <button
               onClick={() => setShowManualForm(true)}
-              className="px-4 py-2 bg-[#000080] text-white rounded flex items-center gap-2"
+              className="px-4 py-2 bg-[#000080] text-white rounded-xl flex items-center gap-2 font-semibold text-sm shadow-sm hover:bg-[#000070] transition-all"
             >
-              <Calendar size={16} /> Jadwalkan Manual
+              <Calendar size={15} /> Jadwalkan Manual
             </button>
           </div>
         )}
