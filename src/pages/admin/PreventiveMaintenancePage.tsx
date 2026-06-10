@@ -6,7 +6,9 @@ import { useNotifications } from '../../context/NotificationContext';
 import { useToast } from '../../context/ToastContext';
 import { Wrench, Calendar, Loader2, Sparkles, Zap } from 'lucide-react';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
-import { getMaintenanceRecommendations, hasAnyAIKey, getAIStatus, type RichItemForAI } from '../../utils/aiClient';
+import { getMaintenanceRecommendations, hasAnyAIKey, getAIStatus, generateSmartCodeWithAI, type RichItemForAI } from '../../utils/aiClient';
+import { buildFallbackSmartCode } from '../../utils/inventoryCode';
+import { getAuthHeaders } from '../../utils/api';
 import type { Room } from '../../types';
 
 interface MaintenanceTask {
@@ -110,9 +112,44 @@ function getPreventiveMaintenanceSchedules(rooms: Room[]): {
 export default function PreventiveMaintenancePage() {
   const { user } = useAuth();
   const { canSee, canEditFeature } = useAccessMatrix();
-  const { rooms, schedulePreventiveMaintenance, completePreventiveMaintenance, cancelPreventiveMaintenance } = useInventory();
+  const { rooms, schedulePreventiveMaintenance, completePreventiveMaintenance, cancelPreventiveMaintenance, refreshRooms } = useInventory();
   const { showToast } = useToast();
   const aiStatus = getAIStatus();
+
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api').replace(/\/+$/, '');
+
+  // Auto-generate and persist SKU for items that don't have one yet
+  // Called before scheduling maintenance so the item always has a code visible across all pages
+  const ensureItemHasSku = async (item: { id: string; name: string; roomName: string; sku?: string }): Promise<string | undefined> => {
+    if (item.sku) return item.sku; // already has a code
+
+    let generatedSku: string;
+    try {
+      const res = await generateSmartCodeWithAI(item.name, undefined, item.roomName);
+      generatedSku = res.suggestedSku;
+    } catch {
+      // Fallback: [Ruangan]-[Nama]-[Nomor] formula
+      generatedSku = buildFallbackSmartCode(item.roomName, item.name, Math.floor(Date.now() % 9000) + 1000, 4);
+    }
+
+    // Persist to DB via items_management update_sku
+    try {
+      const res = await fetch(`${API_BASE_URL}/inventory/items_management.php`, {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ action: 'update_sku', item_id: item.id, sku: generatedSku })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.status === 'success') {
+        // Silently refresh rooms so all pages pick up the new code
+        void refreshRooms();
+        return generatedSku;
+      }
+    } catch (err) {
+      console.warn('Could not persist auto-generated SKU:', err);
+    }
+    return generatedSku; // return even if persist failed (shows in UI)
+  };
 
   // Flatten all items from rooms/containers for dropdown + auto-fill (for manual + AI context)
   // We include sku so that maintenance can be clearly targeted to a specific labeled physical instance
@@ -366,14 +403,25 @@ export default function PreventiveMaintenancePage() {
   };
 
   // Accept AI recommendation → persist as SCHEDULED (accurate persistence)
+  // Also ensures item has an AI-generated SKU (persisted) before scheduling
   const acceptAIRecommendation = async (id: string) => {
     const rec = pendingAiRecs.find((r: any) => r.id === id);
     if (!rec) return;
 
     try {
+      // Step 1: Ensure item has a persisted SKU
+      const sku = await ensureItemHasSku({ id: rec.itemId, name: rec.itemName, roomName: rec.roomName, sku: rec.sku });
+      if (sku && sku !== rec.sku) {
+        // Update local pending rec with the newly assigned code
+        setPendingAiRecs(prev => prev.map((r: any) => r.id === id ? { ...r, sku } : r));
+      }
+
+      // Step 2: Persist maintenance schedule
       await schedulePreventiveMaintenance(rec.itemId, rec.recommendedDate, rec.reason, 'ai');
       setPendingAiRecs(prev => prev.filter((r: any) => r.id !== id));
-      showToast('Rekomendasi AI diterima dan dijadwalkan.', 'success');
+
+      const codeInfo = sku ? ` [${sku}]` : '';
+      showToast(`Rekomendasi AI diterima & dijadwalkan${codeInfo}.`, 'success');
     } catch (e: any) {
       showToast('Gagal menyimpan jadwal: ' + (e?.message || e), 'error');
     }
@@ -423,11 +471,17 @@ export default function PreventiveMaintenancePage() {
 
   const submitManualSchedule = async () => {
     if (!manualForm.itemId || !manualForm.recommendedDate || !manualForm.reason.trim()) {
-      alert('Pilih item, isi alasan, dan pilih tanggal pemeliharaan.');
+      showToast('Pilih item, isi alasan, dan pilih tanggal pemeliharaan.', 'error');
       return;
     }
 
     try {
+      // Ensure item has a SKU before scheduling
+      const sku = await ensureItemHasSku({ id: manualForm.itemId, name: manualForm.itemName, roomName: manualForm.roomName, sku: manualForm.sku || undefined });
+      if (sku && sku !== manualForm.sku) {
+        setManualForm(prev => ({ ...prev, sku }));
+      }
+
       await schedulePreventiveMaintenance(
         manualForm.itemId,
         manualForm.recommendedDate,

@@ -250,7 +250,12 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                     updateField('sku', finalSku);
                 }
             } catch (err) {
-                console.warn('Gagal generate SKU otomatis dengan AI:', err);
+                console.warn('Gagal generate SKU otomatis dengan AI, pakai fallback:', err);
+            }
+            // Guaranteed fallback: always assign a code so items are never unlabeled
+            if (!finalSku) {
+                finalSku = buildFallbackSmartCode(roomName, formData.name, Math.floor(Date.now() % 9000) + 1000, 4);
+                updateField('sku', finalSku);
             }
         }
 
