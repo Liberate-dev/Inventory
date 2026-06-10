@@ -51,7 +51,7 @@ const HomeRoute = () => {
 
   // Matrix-driven portal decision: users who can access admin-only features go to admin portal
   const hasAdminPortalAccess = canSee('user_management', user.role) || canSee('system_logs', user.role);
-  if (hasAdminPortalAccess) {
+  if (hasAdminPortalAccess && user.role === 'admin') {
     return <Navigate to="/admin" replace />;
   }
 
@@ -60,16 +60,10 @@ const HomeRoute = () => {
 
 const InventoryRoute = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
-  const { canSee, loading } = useAccessMatrix();
+  const { loading } = useAccessMatrix();
 
   if (loading || !user) {
     return null;
-  }
-
-  // Matrix-driven: if the user has access to admin-only features per the matrix, they belong in the admin portal
-  const hasAdminPortalAccess = canSee('user_management', user.role) || canSee('system_logs', user.role);
-  if (hasAdminPortalAccess) {
-    return <Navigate to="/admin" replace />;
   }
 
   return <>{children}</>;

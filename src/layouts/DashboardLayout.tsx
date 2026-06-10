@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Map, LogOut, AlertTriangle, User, Shield, ClipboardList, Menu, X, ArrowLeft, Package, FileText, Wrench, Trash2 } from 'lucide-react';
+import { LayoutDashboard, Map, LogOut, AlertTriangle, User, Shield, ClipboardList, Menu, X, ArrowLeft, Package, FileText, Wrench, Trash2, Calculator } from 'lucide-react';
 import { NavLink, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -30,6 +30,7 @@ const DashboardLayout = () => {
         { icon: AlertTriangle, label: t('service_requests'), path: '/dashboard/service-requests', feature: 'service_requests' as FeatureKey },
         { icon: Package, label: 'Manajemen Barang', path: '/dashboard/items', feature: 'item_management' as FeatureKey },
         { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', feature: 'operations' as FeatureKey },
+        { icon: Calculator, label: 'Akuntansi Aset', path: '/dashboard/assets', feature: 'asset_accounting' as FeatureKey },
         { icon: FileText, label: t('reports'), path: '/dashboard/reports', feature: 'reports' as FeatureKey },
         { icon: Wrench, label: 'Pemeliharaan', path: '/dashboard/preventive-maintenance', feature: 'preventive_maintenance' as FeatureKey },
         { icon: Trash2, label: 'Disposal / Pelepasan', path: '/dashboard/disposal', feature: 'disposal' as FeatureKey },
