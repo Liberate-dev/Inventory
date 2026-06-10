@@ -12,6 +12,8 @@ import { useInventory } from '../../context/InventoryContext';
 import { ItemStatusBadge } from '../common/ItemStatusBadge';
 import { ImageUpload } from '../common/ImageUpload';
 import { suggestCanonicalItemName, generateSmartCodeWithAI } from '../../utils/aiClient';
+import { buildFallbackSmartCode } from '../../utils/inventoryCode';
+import { getAuthHeaders } from '../../utils/api';
 
 interface ContainerDetailModalProps {
     container: Container;
@@ -151,7 +153,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     const [editTitle, setEditTitle] = useState(container.name);
 
     // Form State managed by custom hook
-    const { formData, isEditing, editingId, updateField, resetForm, loadItem, generateSku, parameterActions } = useItemForm();
+    const { formData, isEditing, editingId, updateField, resetForm, loadItem, parameterActions } = useItemForm();
 
     // Initial Deep Link Logic
     useEffect(() => {
@@ -430,11 +432,35 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                 showToast(`AI kode: ${msg}`, 'success');
                 return;
             }
-        } catch {
-            // fallback to rule-based generator (rumus lama)
+        } catch (err) {
+            console.warn('AI SKU failed, using smart fallback:', err);
         }
-        // Fallback to rule-based generator (rumus lama)
-        void generateSku({ roomId, roomName });
+
+        // Smart fallback: [Ruangan]-[Nama Barang]-[Nomor Urut] using actual nextNumber & padding
+        try {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL ?? '/public/api'}/inventory/inventory_codes.php`, {
+                headers: getAuthHeaders()
+            });
+            const payload = await response.json();
+            if (response.ok && payload.status === 'success' && payload.settings) {
+                const fallback = buildFallbackSmartCode(
+                    roomName,
+                    useName,
+                    payload.settings.nextNumber,
+                    payload.settings.sequencePadding
+                );
+                updateField('sku', fallback);
+                showToast(`Smart kode fallback: ${fallback}`, 'success');
+                return;
+            }
+        } catch (err) {
+            console.error('Failed to load settings for smart fallback:', err);
+        }
+
+        // Last resort fallback
+        const fallback = buildFallbackSmartCode(roomName, useName, Math.floor(Math.random() * 100) + 1, 4);
+        updateField('sku', fallback);
+        showToast(`Smart kode fallback: ${fallback}`, 'success');
     };
 
     // Use central managed categories from Manajemen Barang for the dropdown (auto-connect when sarpras adds new categories).

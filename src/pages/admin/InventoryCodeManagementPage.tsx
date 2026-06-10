@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Save, Wand2, ChevronDown, ChevronUp, Search, Package, Settings2 } from 'lucide-react';
-import { buildInventoryCode, DEFAULT_INVENTORY_CODE_SETTINGS, deriveRoomCode, type InventoryCodeSettings } from '../../utils/inventoryCode';
+import { buildInventoryCode, DEFAULT_INVENTORY_CODE_SETTINGS, deriveRoomCode, buildFallbackSmartCode, type InventoryCodeSettings } from '../../utils/inventoryCode';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
@@ -227,10 +227,8 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
                     );
                     generatedSku = aiResult.suggestedSku;
                 } catch (aiErr) {
-                    console.warn(`AI SKU failed for item ${item.name}, falling back to standard formula:`, aiErr);
-                    // Fallback to standard formula code
-                    const roomCode = deriveRoomCode(item.room_name || '');
-                    generatedSku = buildInventoryCode(settings, settings.nextNumber + i, roomCode);
+                    console.warn(`AI SKU failed for item ${item.name}, falling back to smart formula:`, aiErr);
+                    generatedSku = buildFallbackSmartCode(item.room_name, item.name, settings.nextNumber + i, settings.sequencePadding);
                 }
 
                 // Save to backend using items_management update_sku action
@@ -290,9 +288,8 @@ const InventoryCodeManagementPage = ({ embedded = false }: InventoryCodeManageme
                 );
                 generatedSku = aiResult.suggestedSku;
             } catch (aiErr) {
-                console.warn(`AI SKU failed, using standard formula:`, aiErr);
-                const roomCode = deriveRoomCode(item.room_name || '');
-                generatedSku = buildInventoryCode(settings, settings.nextNumber, roomCode);
+                console.warn(`AI SKU failed, using smart formula:`, aiErr);
+                generatedSku = buildFallbackSmartCode(item.room_name, item.name, settings.nextNumber, settings.sequencePadding);
             }
 
             const response = await fetch(`${API_BASE_URL}/inventory/items_management.php`, {

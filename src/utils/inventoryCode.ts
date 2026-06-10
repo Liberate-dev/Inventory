@@ -69,3 +69,31 @@ export const buildInventoryCode = (
 
     return parts.join(separator);
 };
+
+export const deriveItemAbbreviation = (itemName?: string): string => {
+    if (!itemName || itemName.trim().length === 0) return 'BRG';
+    const cleaned = itemName
+        .toUpperCase()
+        .replace(/[^A-Z0-9 ]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned) return 'BRG';
+    const tokens = cleaned.split(' ').filter(Boolean);
+    if (tokens.length >= 2) {
+        const initials = tokens.slice(0, 3).map((token) => token[0]).join('');
+        if (initials.length >= 2) return initials;
+    }
+    return tokens[0].slice(0, 3);
+};
+
+export const buildFallbackSmartCode = (
+    roomName: string | undefined,
+    itemName: string | undefined,
+    sequence: number,
+    padding: number = 4
+): string => {
+    const roomCode = deriveRoomCode(roomName || '');
+    const itemCode = deriveItemAbbreviation(itemName || '');
+    const paddedSeq = String(sequence).padStart(padding, '0');
+    return `${roomCode}-${itemCode}-${paddedSeq}`.toUpperCase();
+};
