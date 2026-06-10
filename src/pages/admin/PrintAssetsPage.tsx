@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Printer, Tags, FileSpreadsheet, Settings2 } from 'lucide-react';
+import { Printer, Tags, FileSpreadsheet } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useInventory } from '../../context/InventoryContext';
 import { useAuth } from '../../context/AuthContext';
 import { getProcurementDateFromLogs } from '../../utils/itemHistory';
-import InventoryCodeManagementPage from './InventoryCodeManagementPage';
 import logo from '../../assets/logo.png';
 
 type PrintItem = {
@@ -59,29 +58,37 @@ const formatDateId = (value: string): string => {
     });
 };
 
-const PrintAssetsPage = () => {
+interface PrintAssetsPageProps {
+    forcedMode?: 'label' | 'card';
+}
+
+const PrintAssetsPage = ({ forcedMode }: PrintAssetsPageProps = {}) => {
     const { rooms } = useInventory();
     const { user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
-    const getModeFromQuery = (): 'label' | 'card' | 'codes' => {
+    const getModeFromQuery = (): 'label' | 'card' => {
         const tab = searchParams.get('tab');
-        if (tab === 'card' || tab === 'codes' || tab === 'label') {
+        if (tab === 'card' || tab === 'label') {
             return tab;
         }
         return 'label';
     };
-    const [mode, setMode] = useState<'label' | 'card' | 'codes'>(getModeFromQuery());
+    const [mode, setMode] = useState<'label' | 'card'>(forcedMode || getModeFromQuery());
     const [search, setSearch] = useState('');
     const [roomFilter, setRoomFilter] = useState('all');
     const [cardRoomId, setCardRoomId] = useState('');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
     useEffect(() => {
-        const nextMode = getModeFromQuery();
-        if (nextMode !== mode) {
-            setMode(nextMode);
+        if (forcedMode) {
+            setMode(forcedMode);
+        } else {
+            const nextMode = getModeFromQuery();
+            if (nextMode !== mode) {
+                setMode(nextMode);
+            }
         }
-    }, [searchParams]);
+    }, [searchParams, forcedMode]);
 
     const visibleRooms = useMemo(() => {
         if (!user) return rooms;
@@ -172,7 +179,7 @@ const PrintAssetsPage = () => {
 
     const handlePrint = () => window.print();
 
-    const handleModeChange = (nextMode: 'label' | 'card' | 'codes') => {
+    const handleModeChange = (nextMode: 'label' | 'card') => {
         setMode(nextMode);
         const nextParams = new URLSearchParams(searchParams);
         if (nextMode === 'label') {
@@ -184,19 +191,22 @@ const PrintAssetsPage = () => {
     };
 
     return (
-        <div className="h-full flex flex-col bg-white border border-slate-200 rounded-2xl shadow-md shadow-blue-900/5 overflow-hidden">
+        <div className={forcedMode 
+            ? "bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4" 
+            : "h-full flex flex-col bg-white border border-slate-200 rounded-2xl shadow-md shadow-blue-900/5 overflow-hidden"
+        }>
             <style>{`
                 @media print {
                     .print-break { page-break-after: always; }
                 }
             `}</style>
-            <div className="p-6 md:p-8 space-y-6 overflow-y-auto">
-                <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between print:hidden">
-                    <div>
-                        <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">Cetak & Manajemen Kode Inventaris</h2>
-                        <p className="text-slate-500">Cetak label, kartu inventaris, dan atur patokan manajemen kode inventaris.</p>
-                    </div>
-                    {mode !== 'codes' && (
+            <div className={forcedMode ? "space-y-4" : "p-6 md:p-8 space-y-6 overflow-y-auto"}>
+                {!forcedMode && (
+                    <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between print:hidden">
+                        <div>
+                            <h2 className="text-2xl font-extrabold text-[#000080] tracking-tight">Cetak & Manajemen Kode Inventaris</h2>
+                            <p className="text-slate-500">Cetak label dan kartu inventaris.</p>
+                        </div>
                         <button
                             onClick={handlePrint}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#000080] text-white font-bold hover:bg-[#000060] transition-colors"
@@ -204,29 +214,40 @@ const PrintAssetsPage = () => {
                             <Printer size={18} />
                             Print
                         </button>
-                    )}
-                </div>
+                    </div>
+                )}
 
-                <div className="print:hidden inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
-                    <button
-                        onClick={() => handleModeChange('label')}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${mode === 'label' ? 'bg-white text-[#000080] shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-                    >
-                        <span className="inline-flex items-center gap-2"><Tags size={14} /> Label Memanjang</span>
-                    </button>
-                    <button
-                        onClick={() => handleModeChange('card')}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${mode === 'card' ? 'bg-white text-[#000080] shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-                    >
-                        <span className="inline-flex items-center gap-2"><FileSpreadsheet size={14} /> Kartu Inventaris</span>
-                    </button>
-                    <button
-                        onClick={() => handleModeChange('codes')}
-                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${mode === 'codes' ? 'bg-white text-[#000080] shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
-                    >
-                        <span className="inline-flex items-center gap-2"><Settings2 size={14} /> Kode Inventaris</span>
-                    </button>
-                </div>
+                {forcedMode && (
+                    <div className="flex items-center justify-between print:hidden pb-2 border-b border-slate-100">
+                        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                            {forcedMode === 'label' ? 'Cetak Label Memanjang' : 'Cetak Kartu Inventaris'}
+                        </h3>
+                        <button
+                            onClick={handlePrint}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#000080] text-white font-bold hover:bg-[#000060] transition-colors text-sm shadow-sm"
+                        >
+                            <Printer size={16} />
+                            Print
+                        </button>
+                    </div>
+                )}
+
+                {!forcedMode && (
+                    <div className="print:hidden inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                        <button
+                            onClick={() => handleModeChange('label')}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${mode === 'label' ? 'bg-white text-[#000080] shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+                        >
+                            <span className="inline-flex items-center gap-2"><Tags size={14} /> Label Memanjang</span>
+                        </button>
+                        <button
+                            onClick={() => handleModeChange('card')}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${mode === 'card' ? 'bg-white text-[#000080] shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+                        >
+                            <span className="inline-flex items-center gap-2"><FileSpreadsheet size={14} /> Kartu Inventaris</span>
+                        </button>
+                    </div>
+                )}
 
                 {mode === 'label' && (
                     <section className="space-y-4">
@@ -380,11 +401,6 @@ const PrintAssetsPage = () => {
                     </section>
                 )}
 
-                {mode === 'codes' && (
-                    <section className="space-y-4">
-                        <InventoryCodeManagementPage embedded />
-                    </section>
-                )}
             </div>
         </div>
     );

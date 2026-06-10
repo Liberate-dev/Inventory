@@ -77,6 +77,18 @@ export default function OperationsPage() {
         returnStatus: 'good' as ComponentStatus
     });
 
+    // Retrieve full items for selection modal
+    const allItems: { item: Item; room: Room; container: Container }[] = [];
+    scopedRooms.forEach(room => {
+        room.containers?.forEach(container => {
+            container.items?.forEach(item => {
+                allItems.push({ item, room, container });
+            });
+        });
+    });
+
+    const selectedItemsData = allItems.filter(i => selectedItemIds.includes(i.item.id));
+
     // AUTO-FILL Return Form
     useEffect(() => {
         if (activeTab === 'usage' && usageForm.actionType === 'checkin' && selectedItemIds.length === 1) {
@@ -97,18 +109,6 @@ export default function OperationsPage() {
             }
         }
     }, [selectedItemIds, usageForm.actionType, activeTab]);
-
-    // Retrieve full items for selection modal
-    const allItems: { item: Item; room: Room; container: Container }[] = [];
-    scopedRooms.forEach(room => {
-        room.containers?.forEach(container => {
-            container.items?.forEach(item => {
-                allItems.push({ item, room, container });
-            });
-        });
-    });
-
-    const selectedItemsData = allItems.filter(i => selectedItemIds.includes(i.item.id));
 
     // LOGIC: Exclude source rooms from target room options
     const sourceRoomIds = new Set(selectedItemsData.map(({ room }) => room.id));

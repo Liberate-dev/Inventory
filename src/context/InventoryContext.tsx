@@ -38,6 +38,18 @@ interface InventoryContextType {
     completePreventiveMaintenance: (itemId: string) => Promise<void>;
     cancelPreventiveMaintenance: (itemId: string, cancelReason: string) => Promise<void>;
 
+    // New for integrated item type + label model
+    itemTypes: any[]; // master "Item" types
+    refreshItemTypes: () => Promise<void>;
+    getItemTypeById: (id: string) => any | undefined;
+    createItemType: (data: { name: string; type?: string; category?: string; specs?: string; parameters?: any[] }) => Promise<any>;
+
+    // Category management for Manajemen Barang (central dropdown for item types and labels)
+    categories: any[];
+    refreshCategories: () => Promise<void>;
+    createCategory: (name: string) => Promise<any>;
+    deleteCategory: (id: number | string) => Promise<void>;
+
     stats: InventoryStats;
     recentLogs: { roomId: string; roomName: string; itemName: string; log: ItemLog }[];
     loading: boolean;
@@ -175,6 +187,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     const { showToast } = useToast();
     const { addNotification } = useNotifications();
     const [rooms, setRooms] = useState<Room[]>([]);
+    const [itemTypes, setItemTypes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const previousRoomsRef = useRef<Room[]>([]);
@@ -320,7 +333,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         room.containers?.forEach(container => {
             container.items?.forEach(item => {
                 stats.totalAssets++;
-                if (item.status && stats.health.hasOwnProperty(item.status)) {
+                if (item.status && item.status in stats.health) {
                     stats.health[item.status as keyof typeof stats.health]++;
                 } else {
                     stats.health.good++; // Fallback
@@ -544,6 +557,259 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
 
     const getRoom = (id: string) => rooms.find(r => r.id === id);
 
+    // Basic item types support (for the new "manage item type, labels in detail" model)
+    const fetchItemTypes = useCallback(async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/inventory/item_types.php`, {
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+            if (response.ok && data.status === 'success') {
+                setItemTypes(data.item_types || []);
+            }
+        } catch (e) {
+            // non-fatal for now
+            console.warn('Could not load item types', e);
+        }
+    }, [API_BASE_URL, getAuthHeaders]);
+
+    const refreshItemTypes = useCallback(async () => {
+        await fetchItemTypes();
+    }, [fetchItemTypes]);
+
+    const getItemTypeById = (id: string) => itemTypes.find((t: any) => t.id === id || t.id == id);
+
+    // Optimistic + immediate create for item types (no polling, instant reactivity across the app)
+    const createItemType = useCallback(async (data: { name: string; type?: string; category?: string; specs?: string; parameters?: any[] }) => {
+        const payload = {
+            action: 'create',
+            name: data.name.trim(),
+            type: data.type?.trim() || 'General',
+            category: data.category || null,
+            specs: data.specs || '',
+            parameters: data.parameters || []
+        };
+
+        const res = await requestMutation(
+            `${API_BASE_URL}/inventory/item_types.php`,
+            { method: 'POST', body: JSON.stringify(payload) },
+            'Gagal menambahkan tipe item.'
+        ) as any;
+
+        const newType = {
+            id: res.id ?? Date.now(),
+            name: payload.name,
+            type: payload.type,
+            category: payload.category,
+            specs: payload.specs,
+            parameters: payload.parameters,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        };
+
+        setItemTypes(prev => {
+            const next = [...prev, newType];
+            // Cross-tab sync (no polling, instant in other tabs of same user)
+            try {
+                const bc = new BroadcastChannel('inventory-data-sync');
+                bc.postMessage({ type: 'itemTypesUpdated', payload: next });
+                bc.close();
+            } catch {
+                // ignore BroadcastChannel errors (e.g. not supported)
+            }
+            return next;
+        });
+
+        return newType;
+    }, [API_BASE_URL, requestMutation]);
+
+    // Categories (for central management in Manajemen Barang)
+    const [categories, setCategories] = useState<any[]>([]);
+
+    const fetchCategories = useCallback(async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/inventory/categories.php`, {
+                headers: getAuthHeaders()
+            });
+            const data = await response.json();
+            if (response.ok && data.status === 'success') {
+                setCategories(data.categories || []);
+            }
+        } catch (e) {
+            console.warn('Could not load categories', e);
+        }
+    }, [API_BASE_URL, getAuthHeaders]);
+
+    const refreshCategories = useCallback(async () => {
+        await fetchCategories();
+    }, [fetchCategories]);
+
+    const createCategory = useCallback(async (name: string) => {
+        const payload = { action: 'create', name: name.trim() };
+
+        const res = await requestMutation(
+            `${API_BASE_URL}/inventory/categories.php`,
+            { method: 'POST', body: JSON.stringify(payload) },
+            'Gagal menambahkan kategori.'
+        ) as any;
+
+        const newCat = {
+            id: res.id ?? Date.now(),
+            name: name.trim(),
+            created_at: new Date().toISOString(),
+        };
+
+        setCategories(prev => {
+            const next = [...prev, newCat];
+            try {
+                const bc = new BroadcastChannel('inventory-data-sync');
+                bc.postMessage({ type: 'categoriesUpdated', payload: next });
+                bc.close();
+            } catch (e) {
+                void e;
+            }
+            return next;
+        });
+
+        return newCat;
+    }, [API_BASE_URL, requestMutation]);
+
+    const deleteCategory = useCallback(async (id: number | string) => {
+        const payload = { action: 'delete', id };
+
+        await requestMutation(
+            `${API_BASE_URL}/inventory/categories.php`,
+            { method: 'POST', body: JSON.stringify(payload) },
+            'Gagal menghapus kategori.'
+        );
+
+        setCategories(prev => {
+            const next = prev.filter((c: any) => c.id != id);
+            try {
+                const bc = new BroadcastChannel('inventory-data-sync');
+                bc.postMessage({ type: 'categoriesUpdated', payload: next });
+                bc.close();
+            } catch (e) {
+                void e;
+            }
+            return next;
+        });
+    }, [API_BASE_URL, requestMutation]);
+
+    useEffect(() => {
+        if (isAuthenticated) {
+            void fetchItemTypes();
+            void fetchCategories();
+        }
+    }, [isAuthenticated]);
+
+    // Listen for cross-tab updates (BroadcastChannel) so changes in one tab instantly appear in others without refresh or polling
+    useEffect(() => {
+        let bc: BroadcastChannel | null = null;
+        try {
+            bc = new BroadcastChannel('inventory-data-sync');
+            bc.onmessage = (ev) => {
+                const msg = ev.data || {};
+                if (msg.type === 'itemTypesUpdated' && Array.isArray(msg.payload)) {
+                    setItemTypes(msg.payload);
+                }
+                if (msg.type === 'categoriesUpdated' && Array.isArray(msg.payload)) {
+                    setCategories(msg.payload);
+                }
+                // Future: can handle rooms patches etc.
+            };
+        } catch (e) {
+            void e;
+        }
+        return () => {
+            bc?.close();
+        };
+    }, []);
+
+    const handleRealtimeEvent = useCallback((data: any) => {
+        if (!data || !data.type) return;
+        const { type } = data;
+
+        switch (type) {
+            case 'category_created':
+            case 'category_deleted':
+                // Refresh the central categories list so dropdowns in MB and add-item forms update everywhere
+                void refreshCategories();
+                break;
+
+            case 'item_type_created':
+            case 'item_type_deleted':
+                void refreshItemTypes();
+                break;
+
+            case 'container_item_changed':
+                // Key for labels/instances: when one actor adds/edits a label in a container,
+                // other views (MB labels list, other containers, dashboards) auto see it.
+                // Use silent refresh to avoid loading spinners.
+                void fetchRooms(false);
+                break;
+
+            default:
+                // Unknown event - safe full silent rooms refresh as catch-all for "semua data"
+                void fetchRooms(false);
+                break;
+        }
+    }, [refreshCategories, refreshItemTypes, fetchRooms]);
+
+    // === Real-time SSE for cross-user / cross-session auto sync (no client polling, no manual refresh) ===
+    // When any client mutates data (category, item_type, container item), backend logs to inventory_events.
+    // All connected clients receive push via SSE and update their context state immediately.
+    const lastEventIdRef = useRef<number>(0);
+    useEffect(() => {
+        if (!isAuthenticated) return;
+
+        let es: EventSource | null = null;
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const connectSSE = () => {
+            if (es) {
+                es.close();
+            }
+            const url = `${API_BASE_URL}/inventory/events.php?last_id=${lastEventIdRef.current}`;
+            try {
+                es = new EventSource(url);
+            } catch (e) {
+                // EventSource not supported or other init error - graceful fallback, no user spam
+                console.warn('SSE init failed, real-time sync disabled in this browser:', e);
+                return;
+            }
+
+            es.onmessage = (ev) => {
+                try {
+                    const data = JSON.parse(ev.data || '{}');
+                    if (data && typeof data.id === 'number') {
+                        lastEventIdRef.current = Math.max(lastEventIdRef.current, data.id);
+                    }
+                    handleRealtimeEvent(data);
+                } catch (parseErr) {
+                    console.warn('SSE parse error', parseErr);
+                }
+            };
+
+            es.onerror = () => {
+                // Silent reconnect (no "failed to fetch" toasts to user)
+                if (es) {
+                    es.close();
+                    es = null;
+                }
+                if (reconnectTimer) clearTimeout(reconnectTimer);
+                reconnectTimer = setTimeout(connectSSE, 3000);
+            };
+        };
+
+        connectSSE();
+
+        return () => {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            if (es) es.close();
+        };
+    }, [isAuthenticated, API_BASE_URL, handleRealtimeEvent]);
+
     // === Preventive Maintenance log persistence (accurate, via item_logs) ===
     const appendLogLocally = useCallback((itemId: string, log: ItemLog) => {
         setRooms(prev => prev.map(room => ({
@@ -667,6 +933,14 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         schedulePreventiveMaintenance,
         completePreventiveMaintenance,
         cancelPreventiveMaintenance,
+        itemTypes,
+        refreshItemTypes,
+        getItemTypeById,
+        createItemType,
+        categories,
+        refreshCategories,
+        createCategory,
+        deleteCategory,
         stats,
         recentLogs,
         loading,
@@ -679,7 +953,12 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
         error,
         schedulePreventiveMaintenance,
         completePreventiveMaintenance,
-        cancelPreventiveMaintenance
+        cancelPreventiveMaintenance,
+        itemTypes,
+        createItemType,
+        categories,
+        createCategory,
+        deleteCategory
     ]);
 
     return (

@@ -174,13 +174,13 @@ try {
 }
 
 if ($method === 'GET') {
-    authRequireFeature($db, 'print_assets', 'view');
+    authRequireFeature($db, 'item_management', 'view');
     $settings = fetchInventoryCodeSettings($db);
     respondInventoryCode(200, ['status' => 'success', 'settings' => $settings]);
 }
 
 if ($method === 'PUT') {
-    authRequireFeature($db, 'print_assets', 'full');
+    authRequireFeature($db, 'item_management', 'full');
     $settings = fetchInventoryCodeSettings($db);
 
     $prefix = strtoupper(trim((string) ($payload['prefix'] ?? $settings['prefix'])));
@@ -241,7 +241,7 @@ if ($method === 'POST') {
     $action = (string) ($payload['action'] ?? '');
 
     if ($action === 'generate') {
-        if (!authHasFeatureAccess($authUser, 'print_assets', 'full', $db) && !authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
+        if (!authHasFeatureAccess($authUser, 'item_management', 'full', $db) && !authHasFeatureAccess($authUser, 'rooms', 'full', $db)) {
             respondInventoryCode(403, ['status' => 'error', 'message' => 'Access denied.']);
         }
 
@@ -293,7 +293,7 @@ if ($method === 'POST') {
     }
 
     if ($action === 'normalize') {
-        if (!authHasFeatureAccess($authUser, 'print_assets', 'full', $db)) {
+        if (!authHasFeatureAccess($authUser, 'item_management', 'full', $db)) {
             respondInventoryCode(403, ['status' => 'error', 'message' => 'Access denied.']);
         }
 

@@ -23,6 +23,16 @@ export interface ItemLog {
 
 export type ContainerType = 'table' | 'cupboard' | 'shelf';
 
+export interface ItemType {
+    id: string;
+    name: string;
+    type: string;
+    category?: string;
+    specs?: string;
+    parameters?: { label: string; value: string }[];
+    imageUrl?: string;
+}
+
 export interface Item {
     id: string;
     name: string;
@@ -32,7 +42,7 @@ export interface Item {
     imageUrl?: string;
     image_layer?: string; // Backward compatibility
     logs: ItemLog[];
-    sku?: string;
+    sku?: string; // the "label" / unique code that distinguishes this specific physical instance of the Item type
     category?: string;
     source?: string;
     isConsumable?: boolean;
@@ -41,6 +51,8 @@ export interface Item {
     minStock?: number;
     parameters?: { label: string; value: string }[];
     condition: ComponentCondition;
+    itemTypeId?: string; // link to master Item type (for the new integrated model)
+    itemTypeName?: string;
 }
 
 export type RequestStatus = 'pending' | 'accepted' | 'denied' | 'completed';

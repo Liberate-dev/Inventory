@@ -20,6 +20,8 @@ interface ItemFormData {
     parameters: { label: string; value: string }[];
     status: ComponentStatus;
     imageUrl: string;
+    itemTypeId?: string; // selected "Item" type (master); the sku/label then makes the specific instance
+    itemTypeName?: string;
 }
 
 export const useItemForm = (initialItem?: Item | null) => {
@@ -38,7 +40,9 @@ export const useItemForm = (initialItem?: Item | null) => {
         source: '',
         parameters: [],
         status: 'good',
-        imageUrl: ''
+        imageUrl: '',
+        itemTypeId: '',
+        itemTypeName: ''
     };
 
     const [formData, setFormData] = useState<ItemFormData>(defaultState);
@@ -63,7 +67,9 @@ export const useItemForm = (initialItem?: Item | null) => {
             source: item.source || '',
             parameters: item.parameters || [],
             status: item.status || 'good',
-            imageUrl: item.imageUrl || item.image_layer || ''
+            imageUrl: item.imageUrl || item.image_layer || '',
+            itemTypeId: (item as any).itemTypeId || '',
+            itemTypeName: (item as any).itemTypeName || ''
         });
         setIsEditing(true);
         setEditingId(item.id);

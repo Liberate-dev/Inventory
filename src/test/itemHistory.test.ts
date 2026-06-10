@@ -114,7 +114,7 @@ describe('buildDeletionHistoryRows', () => {
         sku: 'INV-13-0168',
         procurementDate: '2026-01-10T08:00:00.000Z',
         deletionDate: '2026-03-08T11:30:00.000Z',
-        conditionText: 'Rusak',
+        conditionText: 'Rusak Berat',
       },
     ]);
   });

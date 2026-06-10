@@ -96,11 +96,32 @@ CREATE TABLE `items` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `item_type_id` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `sku` (`sku`),
   KEY `container_id` (`container_id`),
+  KEY `item_type_id` (`item_type_id`),
   CONSTRAINT `fk_item_container` FOREIGN KEY (`container_id`) REFERENCES `containers` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- New master "Item" (type) table for the integrated model.
+-- "Manajemen Barang" now manages these (e.g. "Meja").
+-- Specific physical units (in containers) link here via item_type_id; the "label" (sku) distinguishes the instance.
+CREATE TABLE `item_types` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(150) NOT NULL,
+  `type` varchar(100) NOT NULL,
+  `category` varchar(50) DEFAULT NULL,
+  `specs` text DEFAULT NULL,
+  `parameters` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`parameters`)),
+  `image_url` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Add FK after table creation (for fresh DBs)
+ALTER TABLE `items` ADD CONSTRAINT `fk_item_item_type` FOREIGN KEY (`item_type_id`) REFERENCES `item_types` (`id`) ON DELETE SET NULL;
 
 -- --------------------------------------------------------
 

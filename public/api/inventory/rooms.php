@@ -2,6 +2,7 @@
 include_once '../config/cors.php';
 include_once '../config/database.php';
 include_once '../config/auth.php';
+include_once __DIR__ . '/schema_compat.php';
 
 header('Content-Type: application/json');
 
@@ -13,6 +14,13 @@ if (!$db) {
     echo json_encode(['status' => 'error', 'message' => 'Database connection failed.']);
     exit;
 }
+
+ensureItemTypesSchema($db);
+ensureInventoryEventsSchema($db);
+
+// Ensure the new item_types table + item_type_id column exist (for "Item master + Label" model).
+// This makes the integration work even on databases initialized before the schema change.
+ensureItemTypesSchema($db);
 
 $method = $_SERVER['REQUEST_METHOD'];
 $rawInput = file_get_contents("php://input");
@@ -244,17 +252,18 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
             `unit` = :unit,
             `min_stock` = :min_stock,
             `source` = :source,
-            `parameters` = :parameters
+            `parameters` = :parameters,
+            `item_type_id` = :item_type_id
          WHERE `id` = :id"
     );
 
     $insertItemStmt = $db->prepare(
         "INSERT INTO `items` (
             `container_id`, `name`, `type`, `condition`, `status`, `specs`, `image_url`,
-            `sku`, `category`, `is_consumable`, `quantity`, `unit`, `min_stock`, `source`, `parameters`
+            `sku`, `category`, `is_consumable`, `quantity`, `unit`, `min_stock`, `source`, `parameters`, `item_type_id`
         ) VALUES (
             :container_id, :name, :type, :condition, :status, :specs, :image_url,
-            :sku, :category, :is_consumable, :quantity, :unit, :min_stock, :source, :parameters
+            :sku, :category, :is_consumable, :quantity, :unit, :min_stock, :source, :parameters, :item_type_id
         )"
     );
 
@@ -322,6 +331,7 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
         $minStock = isset($item['minStock']) ? (int) $item['minStock'] : (isset($item['min_stock']) ? (int) $item['min_stock'] : 0);
         $source = isset($item['source']) ? (string) $item['source'] : null;
         $parameters = isset($item['parameters']) && is_array($item['parameters']) ? json_encode($item['parameters']) : json_encode([]);
+        $itemTypeId = validateId($item['item_type_id'] ?? null);
         $itemId = validateId($item['id'] ?? null);
         $hasExistingItem = false;
         if ($itemId !== null) {
@@ -365,6 +375,11 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
             $updateItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
             $updateItemStmt->bindValue(':source', $source, PDO::PARAM_STR);
             $updateItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
+            if ($itemTypeId === null) {
+                $updateItemStmt->bindValue(':item_type_id', null, PDO::PARAM_NULL);
+            } else {
+                $updateItemStmt->bindValue(':item_type_id', $itemTypeId, PDO::PARAM_INT);
+            }
             $updateItemStmt->execute();
             $newItemId = $itemId;
         } else {
@@ -399,11 +414,24 @@ function syncContainerItems(PDO $db, array $authUser, int $containerId, array $i
             $insertItemStmt->bindValue(':min_stock', $minStock, PDO::PARAM_INT);
             $insertItemStmt->bindValue(':source', $source, PDO::PARAM_STR);
             $insertItemStmt->bindValue(':parameters', $parameters, PDO::PARAM_STR);
+            if ($itemTypeId === null) {
+                $insertItemStmt->bindValue(':item_type_id', null, PDO::PARAM_NULL);
+            } else {
+                $insertItemStmt->bindValue(':item_type_id', $itemTypeId, PDO::PARAM_INT);
+            }
             $insertItemStmt->execute();
             $newItemId = (int) $db->lastInsertId();
         }
 
         $keptItemIds[] = $newItemId;
+
+        // Log change event so SSE pushes to all connected clients (other actors, other tabs) for auto-sync without refresh
+        $eventPayload = json_encode([
+            'container_id' => $containerId,
+            'item_id' => $newItemId,
+            'action' => $hasExistingItem ? 'updated' : 'created'
+        ], JSON_UNESCAPED_UNICODE);
+        $db->prepare("INSERT INTO inventory_events (event_type, payload) VALUES ('container_item_changed', ?)")->execute([$eventPayload]);
 
         if (!array_key_exists('logs', $item) || !is_array($item['logs'])) {
             $countLogsStmt->bindValue(':item_id', $newItemId, PDO::PARAM_INT);

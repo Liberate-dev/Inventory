@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Plus, Trash2, Box, Activity, Zap, Scissors, Server, Printer, AlertTriangle, RefreshCw, CheckSquare, Square } from 'lucide-react';
+import { X, Plus, Trash2, Box, Activity, Zap, Scissors, Server, Printer, AlertTriangle, Sparkles } from 'lucide-react';
 import type { Container, Item, ItemLog, ServiceRequest, ComponentStatus } from '../../types';
 import { useServiceRequests } from '../../context/ServiceRequestContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -8,8 +8,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
 import { useToast } from '../../context/ToastContext';
 import { useItemForm } from '../../hooks/useItemForm';
+import { useInventory } from '../../context/InventoryContext';
 import { ItemStatusBadge } from '../common/ItemStatusBadge';
 import { ImageUpload } from '../common/ImageUpload';
+import { suggestCanonicalItemName, generateSmartCodeWithAI } from '../../utils/aiClient';
 
 interface ContainerDetailModalProps {
     container: Container;
@@ -140,6 +142,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
     const { showToast } = useToast();
     const canEditInventory = user ? canEditFeature('rooms', user.role) : false;
     const canReportItems = user ? canSee('service_requests', user.role) : false;
+    const { itemTypes: availableItemTypes = [], categories: managedCategories = [], createItemType } = useInventory();
     const [items, setItems] = useState<Item[]>(container.items || []);
     const [isFormOpen, setIsFormOpen] = useState(false);
 
@@ -205,7 +208,7 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
         setIsEditingTitle(false);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!canEditInventory) {
             showToast('Anda tidak memiliki izin untuk menyimpan item.', 'error');
             return;
@@ -215,9 +218,43 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
         let updatedItems = [...items];
         const now = new Date().toISOString();
 
+        let finalItemTypeId = formData.itemTypeId;
+        let finalItemTypeName = formData.itemTypeName;
+
+        if (!finalItemTypeId && formData.name) {
+            // Create new master item type on the fly (optional in form), AI helped name etc, auto to Manajemen Barang
+            try {
+                const master = await createItemType({
+                    name: formData.name,
+                    category: formData.category,
+                });
+                finalItemTypeId = master.id;
+                finalItemTypeName = master.name || formData.name;
+                updateField('itemTypeId', finalItemTypeId);
+                updateField('itemTypeName', finalItemTypeName);
+                showToast('Tipe master baru dibuat via form/AI dan masuk Manajemen Barang.', 'success');
+            } catch (e: any) {
+                showToast('Gagal membuat tipe master baru: ' + (e?.message || ''), 'error');
+                return;
+            }
+        }
+
+        let finalSku = formData.sku;
+        if (!finalSku && formData.name) {
+            try {
+                const sug = await generateSmartCodeWithAI(formData.name, finalItemTypeName, roomName, formData.category);
+                if (sug.suggestedSku) {
+                    finalSku = sug.suggestedSku;
+                    updateField('sku', finalSku);
+                }
+            } catch (err) {
+                console.warn('Gagal generate SKU otomatis dengan AI:', err);
+            }
+        }
+
         const commonData = {
             name: formData.name,
-            sku: formData.sku,
+            sku: finalSku,
             type: formData.category || 'Standard', // Maps to type for legacy support
             category: formData.category,
             source: formData.source,
@@ -226,6 +263,8 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
             unit: formData.unit,
             minStock: formData.minStock === '' ? 0 : formData.minStock,
             parameters: formData.parameters,
+            itemTypeId: finalItemTypeId,
+            itemTypeName: finalItemTypeName,
         };
 
         if (isEditing && editingId) {
@@ -344,6 +383,67 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
         ? (items.find((item) => item.id === editingId)?.logs ?? []).filter((log) => log.action !== 'INITIALIZED')
         : [];
     const isReadOnlyMode = isFormOpen && isEditing && !canEditInventory;
+
+    // AI handlers for name dedup (point 1) and code (point 2)
+    const [isCheckingAiName, setIsCheckingAiName] = useState(false);
+
+    const handleAiNameCheck = async () => {
+        const current = formData.name?.trim();
+        if (!current || isReadOnlyMode) return;
+        setIsCheckingAiName(true);
+        try {
+            const suggestion = await suggestCanonicalItemName(current, availableItemTypes as any[], managedCategories as any[]);
+            updateField('name', suggestion.suggestedName);
+            if (suggestion.category) {
+                updateField('category', suggestion.category);
+            }
+            const toastMsg = suggestion.reason
+                ? `AI saran: ${suggestion.suggestedName} — ${suggestion.reason}`
+                : `AI: ${suggestion.suggestedName}`;
+            showToast(toastMsg, 'success');
+
+            // Auto generate inventory code (SKU) after AI name suggestion, using the (possibly updated) name + category from Manajemen Kategori
+            if (!isEditing) {
+                void handleSmartCode(suggestion.suggestedName, suggestion.category);
+            }
+        } catch (err: any) {
+            showToast('AI cek nama gagal: ' + (err?.message || ''), 'error');
+        } finally {
+            setIsCheckingAiName(false);
+        }
+    };
+
+    const handleSmartCode = async (overrideName?: string, overrideCategory?: string) => {
+        if (isReadOnlyMode) return;
+        const useName = overrideName || formData.name || formData.itemTypeName || '';
+        const useCategory = overrideCategory || formData.category;
+        try {
+            const res = await generateSmartCodeWithAI(
+                useName,
+                formData.itemTypeName,
+                roomName,
+                useCategory  // pass category from Manajemen Kategori for AI awareness
+            );
+            if (res?.suggestedSku) {
+                updateField('sku', res.suggestedSku);
+                const msg = res.reason ? `${res.suggestedSku} — ${res.reason}` : res.suggestedSku;
+                showToast(`AI kode: ${msg}`, 'success');
+                return;
+            }
+        } catch {
+            // fallback to rule-based generator (rumus lama)
+        }
+        // Fallback to rule-based generator (rumus lama)
+        void generateSku({ roomId, roomName });
+    };
+
+    // Use central managed categories from Manajemen Barang for the dropdown (auto-connect when sarpras adds new categories).
+    // Fallback to categories already assigned to existing item types if no managed list yet.
+    const categoryOptions = managedCategories.length > 0
+        ? managedCategories.map((c: any) => c.name).sort()
+        : Array.from(
+            new Set((availableItemTypes as any[]).map((t: any) => t.category).filter((c: any) => !!c))
+          ).sort() as string[];
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={onClose}>
@@ -464,59 +564,89 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 
                                         {/* SECTION 1: IDENTIFICATION */}
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {/* Pilih Item (Tipe Master) first — the "item", label/SKU then distinguishes specific physical units */}
                                             <div className="md:col-span-2">
-                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{t('item_name')} <span className="text-red-500">*</span></label>
-                                                <input
-                                                    type="text"
-                                                    value={formData.name}
-                                                    onChange={(e) => updateField('name', e.target.value)}
+                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Pilih Item (Tipe) - opsional</label>
+                                                <select
+                                                    value={formData.itemTypeId || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        updateField('itemTypeId', val || '');
+                                                        const chosen = (availableItemTypes as any[]).find((t: any) => String(t.id) === val);
+                                                        if (chosen) {
+                                                            updateField('itemTypeName', chosen.name || '');
+                                                            updateField('category', chosen.category || '');
+                                                            if (!isEditing) {
+                                                                updateField('name', chosen.name || '');
+                                                                void handleSmartCode(chosen.name, chosen.category);
+                                                            }
+                                                        } else {
+                                                            updateField('itemTypeName', '');
+                                                        }
+                                                    }}
                                                     disabled={isReadOnlyMode}
-                                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-bold text-gray-800"
-                                                    placeholder="e.g. Dell Monitor 24inch"
-                                                    autoFocus
-                                                />
+                                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-semibold text-gray-800 bg-white"
+                                                >
+                                                    <option value="">-- Buat baru (isi nama di bawah) atau pilih tipe existing --</option>
+                                                    {(availableItemTypes as any[]).map((t: any) => (
+                                                        <option key={t.id} value={t.id}>{t.name}{t.category ? ` (${t.category})` : ''}</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-slate-500 mt-1">Opsional: pilih master existing dari Manajemen Barang, atau kosongkan + isi nama untuk buat master baru (otomatis masuk MB via AI bantuan). Label/SKU membedakan unit fisik.</p>
                                             </div>
 
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{t('sku_code')}</label>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{t('item_name')} (dari tipe atau sesuaikan) <span className="text-red-500">*</span></label>
                                                 <div className="flex gap-2">
                                                     <input
                                                         type="text"
-                                                        value={formData.sku}
-                                                        onChange={(e) => updateField('sku', e.target.value)}
+                                                        value={formData.name}
+                                                        onChange={(e) => updateField('name', e.target.value)}
                                                         disabled={isReadOnlyMode}
-                                                        className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm uppercase"
-                                                        placeholder="INV-..."
+                                                        className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-bold text-gray-800"
+                                                        placeholder="e.g. Meja Kerja (override jika perlu)"
+                                                        autoFocus
                                                     />
-                                                    <button
-                                                        onClick={() => { void generateSku({ roomId, roomName }); }}
-                                                        disabled={isReadOnlyMode}
-                                                        className="p-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200"
-                                                        title="Generate SKU"
-                                                    >
-                                                        <RefreshCw size={20} />
-                                                    </button>
+                                                    {!isReadOnlyMode && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleAiNameCheck}
+                                                            disabled={isCheckingAiName || !formData.name?.trim()}
+                                                            className={`p-2.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-600 rounded-xl transition disabled:opacity-50 ${isCheckingAiName ? 'cursor-wait' : ''}`}
+                                                            title={isCheckingAiName ? 'Sedang cek dengan AI...' : 'Cek dengan AI: sarankan nama standar & hindari nama redundan di seluruh sistem'}
+                                                        >
+                                                            <Sparkles size={18} className={isCheckingAiName ? 'animate-pulse' : ''} />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
 
                                             <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{t('category_label')}</label>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{t('sku_code')} (Label Pemisah Spesifik)</label>
                                                 <input
                                                     type="text"
+                                                    value={formData.sku}
+                                                    onChange={(e) => updateField('sku', e.target.value)}
+                                                    disabled={isReadOnlyMode}
+                                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm uppercase"
+                                                    placeholder="INV-... (otomatis dari pilihan Item / bisa diedit manual)"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{t('category_label')}</label>
+                                                <select
                                                     value={formData.category}
                                                     onChange={(e) => updateField('category', e.target.value)}
                                                     disabled={isReadOnlyMode}
-                                                    list="category-suggestions"
                                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                                                    placeholder="e.g. Hardware"
-                                                />
-                                                <datalist id="category-suggestions">
-                                                    <option value="Hardware" />
-                                                    <option value="Consumables" />
-                                                    <option value="Glassware" />
-                                                    <option value="Chemicals" />
-                                                    <option value="Electronics" />
-                                                </datalist>
+                                                >
+                                                    <option value="">-- Pilih Kategori (dikelola di Manajemen Barang) --</option>
+                                                    {categoryOptions.map((c: string) => (
+                                                        <option key={c} value={c}>{c}</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">Kategori dikelola secara terpusat di Manajemen Barang (oleh sarpras) dan otomatis tersedia di form ini (integrasi via context).</p>
                                             </div>
 
                                             <div>
@@ -551,22 +681,10 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
 
                                         {/* SECTION 2: TRACKING & STOCK */}
                                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                            <div className="flex items-center gap-2 mb-4">
-                                                <button
-                                                    onClick={() => updateField('isConsumable', !formData.isConsumable)}
-                                                    disabled={isReadOnlyMode}
-                                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${formData.isConsumable ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400'}`}
-                                                >
-                                                    {formData.isConsumable ? <CheckSquare size={16} /> : <Square size={16} />}
-                                                    <span className="text-sm font-bold">{t('is_consumable')}</span>
-                                                </button>
-                                                <span className="text-xs text-gray-500">{t('enable_stock_tracking')}</span>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                            <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-                                                        {formData.isConsumable ? t('current_stock') : t('quantity')}
+                                                        {t('quantity')}
                                                     </label>
                                                     <input
                                                         type="text"
@@ -593,25 +711,6 @@ const ContainerDetailModal = ({ container, roomId, roomName, initialItemId, onCl
                                                         placeholder="Pcs"
                                                     />
                                                 </div>
-
-                                                {formData.isConsumable && (
-                                                    <div className="animate-in fade-in slide-in-from-left-4">
-                                                        <label className="block text-xs font-bold text-amber-600 uppercase tracking-wider mb-1.5">{t('min_stock')}</label>
-                                                        <input
-                                                            type="text"
-                                                            inputMode="numeric"
-                                                            pattern="[0-9]*"
-                                                            placeholder="e.g. 0"
-                                                            value={formData.minStock || ''}
-                                                            disabled={isReadOnlyMode}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/\D/g, '');
-                                                                updateField('minStock', val ? parseInt(val, 10) : 0);
-                                                            }}
-                                                            className="w-full px-4 py-2.5 border border-amber-300 bg-amber-50 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none font-mono font-bold text-amber-800"
-                                                        />
-                                                    </div>
-                                                )}
                                             </div>
                                         </div>
 

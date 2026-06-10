@@ -1,5 +1,5 @@
-﻿import { useEffect, useState } from 'react';
-import { LayoutDashboard, Map, LogOut, AlertTriangle, User, Shield, ClipboardList, Menu, X, ArrowLeft, Printer, Package, FileText, Wrench, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { LayoutDashboard, Map, LogOut, AlertTriangle, User, Shield, ClipboardList, Menu, X, ArrowLeft, Package, FileText, Wrench, Trash2 } from 'lucide-react';
 import { NavLink, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -31,7 +31,6 @@ const DashboardLayout = () => {
         { icon: Package, label: 'Manajemen Barang', path: '/dashboard/items', feature: 'item_management' as FeatureKey },
         { icon: ClipboardList, label: t('operations'), path: '/dashboard/operations', feature: 'operations' as FeatureKey },
         { icon: FileText, label: t('reports'), path: '/dashboard/reports', feature: 'reports' as FeatureKey },
-        { icon: Printer, label: t('print_assets'), path: '/dashboard/print-assets', feature: 'print_assets' as FeatureKey },
         { icon: Wrench, label: 'Pemeliharaan', path: '/dashboard/preventive-maintenance', feature: 'preventive_maintenance' as FeatureKey },
         { icon: Trash2, label: 'Disposal / Pelepasan', path: '/dashboard/disposal', feature: 'disposal' as FeatureKey },
         { icon: Shield, label: t('user_management'), path: '/dashboard/admin/users', feature: 'user_management' as FeatureKey },

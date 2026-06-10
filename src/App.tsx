@@ -22,7 +22,6 @@ import UserProfile from './pages/UserProfile';
 import UserManagement from './pages/admin/UserManagement';
 import ReportPage from './pages/admin/ReportPage';
 import OperationsPage from './pages/admin/OperationsPage';
-import PrintAssetsPage from './pages/admin/PrintAssetsPage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import SystemLogsPage from './pages/admin/SystemLogsPage';
 import ItemManagementPage from './pages/admin/ItemManagementPage';
@@ -165,8 +164,8 @@ const App = () => {
                         <Route path="profile" element={<UserProfile />} />
                         <Route path="admin/users" element={<InventoryRoute><FeatureRoute feature="user_management"><UserManagement /></FeatureRoute></InventoryRoute>} />
                         <Route path="reports" element={<InventoryRoute><FeatureRoute feature="reports"><ReportPage /></FeatureRoute></InventoryRoute>} />
-                        <Route path="print-assets" element={<InventoryRoute><FeatureRoute feature="print_assets"><PrintAssetsPage /></FeatureRoute></InventoryRoute>} />
-                        <Route path="inventory-codes" element={<InventoryRoute><FeatureRoute feature="print_assets"><Navigate to="/dashboard/print-assets?tab=codes" replace /></FeatureRoute></InventoryRoute>} />
+                        <Route path="print-assets" element={<InventoryRoute><FeatureRoute feature="item_management"><Navigate to="/dashboard/items?tab=label" replace /></FeatureRoute></InventoryRoute>} />
+                        <Route path="inventory-codes" element={<InventoryRoute><FeatureRoute feature="item_management"><Navigate to="/dashboard/items?tab=codes" replace /></FeatureRoute></InventoryRoute>} />
                         <Route path="items" element={<InventoryRoute><FeatureRoute feature="item_management"><ItemManagementPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="operations" element={<InventoryRoute><FeatureRoute feature="operations"><OperationsPage /></FeatureRoute></InventoryRoute>} />
                         <Route path="assets" element={<InventoryRoute><FeatureRoute feature="asset_accounting"><AssetAccountingPage /></FeatureRoute></InventoryRoute>} />

@@ -131,6 +131,20 @@ if ($method === 'POST') {
             $stmt->execute([$resolvedItemId]);
 
             $message = 'Barang dihapus permanen.';
+        } elseif ($action === 'update_sku') {
+            $sku = trim((string) ($input['sku'] ?? ''));
+            if ($sku === '') {
+                throw new Exception('SKU tidak boleh kosong.');
+            }
+            $stmt = $db->prepare('UPDATE items SET sku = ? WHERE id = ?');
+            $stmt->execute([$sku, $resolvedItemId]);
+
+            insertItemLog($db, $resolvedItemId, 'UPDATE_SKU', [
+                'updatedBy' => $user['name'],
+                'newSku' => $sku
+            ], $resolvedUserId);
+
+            $message = 'SKU item berhasil diperbarui.';
         } else {
             throw new Exception('Unknown action');
         }

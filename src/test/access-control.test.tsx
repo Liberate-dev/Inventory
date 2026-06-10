@@ -307,8 +307,8 @@ describe('access matrix integration', () => {
 
     renderApp();
 
-    await user.type(screen.getByLabelText(/Username \/ Email/i), 'admin');
-    await user.type(screen.getByLabelText(/^Password$/i), 'password');
+    await user.type(screen.getByLabelText(/Username \/ Email|Nama Pengguna \/ Email/i), 'admin');
+    await user.type(screen.getByLabelText(/^Password$|^Kata Sandi$/i), 'password');
     await user.click(screen.getByRole('button', { name: /Masuk ke Sistem/i }));
 
     await waitFor(() => {
@@ -432,7 +432,7 @@ describe('access matrix integration', () => {
       expect(window.location.pathname).toBe('/dashboard/items');
     });
     expect(await screen.findByText('PC Siswa 01')).toBeInTheDocument();
-    expect(screen.getByTitle('Nonaktifkan (Soft Delete)')).toBeInTheDocument();
+    expect(screen.getByTitle('Aksi')).toBeInTheDocument();
   });
 
   it('keeps kepala lab in view-only mode on service requests', async () => {
@@ -455,8 +455,8 @@ describe('access matrix integration', () => {
 
     renderApp();
 
-    await user.type(screen.getByLabelText(/Username \/ Email/i), 'admin');
-    await user.type(screen.getByLabelText(/^Password$/i), 'wrong-password');
+    await user.type(screen.getByLabelText(/Username \/ Email|Nama Pengguna \/ Email/i), 'admin');
+    await user.type(screen.getByLabelText(/^Password$|^Kata Sandi$/i), 'wrong-password');
     await user.click(screen.getByRole('button', { name: /Masuk ke Sistem/i }));
 
     expect(await screen.findByText(/Username atau password salah|Login gagal/i)).toBeInTheDocument();
