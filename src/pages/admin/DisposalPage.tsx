@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useAccessMatrix } from '../../context/AccessMatrixContext';
+import { getAuthHeaders } from '../../utils/api';
 import { Trash2, Plus, Clock, CheckCircle, XCircle } from 'lucide-react';
 
 interface DisposalRequest {
   id: string;
   itemName: string;
+  itemId?: string | number;
   reason: string;
   proposedDate: string;
   status: 'pending' | 'approved' | 'rejected' | 'executed';
@@ -15,31 +17,74 @@ interface DisposalRequest {
 export default function DisposalPage() {
   const { user } = useAuth();
   const { canSee, canEditFeature } = useAccessMatrix();
+
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [requests, setRequests] = useState<DisposalRequest[]>([
     // Demo data - in real would come from API
     { id: 'd1', itemName: 'Server Lama Lab Komputer', reason: 'End of life, diganti unit baru', proposedDate: '2026-07-15', status: 'pending', requestedBy: 'sarpras.1' },
   ]);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ itemName: '', reason: '', proposedDate: '' });
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+
+  const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/public/api');
 
   const canCreate = user ? canEditFeature('disposal', user.role) : false;
   const canApprove = user ? canEditFeature('disposal', user.role) : false; // kepala_sekolah full
   const today = new Date().toISOString().split('T')[0];
 
+  // Fetch full list of inventory items (same endpoint used by asset forms & item mgmt)
+  useEffect(() => {
+    const fetchItems = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/inventory/items_management.php`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+          setInventoryItems(data.items || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch items for disposal form:', err);
+      }
+    };
+    fetchItems();
+  }, [API_BASE_URL]);
+
+  const handleSelectItem = (itemId: string) => {
+    const item = inventoryItems.find((i: any) => String(i.id) === itemId);
+    setSelectedItem(item || null);
+    setFormData(prev => ({
+      ...prev,
+      itemName: item ? item.name : '',
+    }));
+  };
+
+  const resetForm = () => {
+    setFormData({ itemName: '', reason: '', proposedDate: '' });
+    setSelectedItem(null);
+  };
+
   const handleCreate = () => {
-    if (!formData.itemName || !formData.reason || !formData.proposedDate) return;
+    if (!selectedItem || !formData.reason.trim() || !formData.proposedDate) {
+      alert('Pilih item dari daftar, isi alasan, dan tentukan tanggal jadwal.');
+      return;
+    }
     if (formData.proposedDate < today) {
       alert('Tanggal pengajuan disposal tidak boleh sebelum hari ini.');
       return;
     }
     const newReq: DisposalRequest = {
       id: 'd' + Date.now(),
-      ...formData,
+      itemName: selectedItem.name,
+      itemId: selectedItem.id,
+      reason: formData.reason.trim(),
+      proposedDate: formData.proposedDate,
       status: 'pending',
       requestedBy: user?.username || 'unknown',
     };
     setRequests([...requests, newReq]);
-    setFormData({ itemName: '', reason: '', proposedDate: '' });
+    resetForm();
     setShowForm(false);
     alert('Permintaan disposal dibuat. Menunggu persetujuan Kepala Sekolah. Sistem akan hold soft-delete sampai tanggal jadwal.');
   };
@@ -77,7 +122,13 @@ export default function DisposalPage() {
           <p className="text-sm text-slate-500">Hak sarpras untuk mengajukan, persetujuan Kepala Sekolah. Soft delete ditahan sampai jadwal.</p>
         </div>
         {canCreate && (
-          <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-lg">
+          <button
+            onClick={() => {
+              if (showForm) resetForm();
+              setShowForm(!showForm);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-[#000080] text-white rounded-lg"
+          >
             <Plus size={16} /> Ajukan Disposal
           </button>
         )}
@@ -86,16 +137,65 @@ export default function DisposalPage() {
       {showForm && canCreate && (
         <div className="bg-white p-6 rounded-xl border">
           <h3 className="font-semibold mb-4">Form Permintaan Disposal Baru</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <input className="border p-2 rounded" placeholder="Nama Item / Aset" value={formData.itemName} onChange={e => setFormData({...formData, itemName: e.target.value})} />
-            <input className="border p-2 rounded" placeholder="Alasan" value={formData.reason} onChange={e => setFormData({...formData, reason: e.target.value})} />
-            <input
-              type="date"
-              min={today}
-              className="border p-2 rounded"
-              value={formData.proposedDate}
-              onChange={e => setFormData({ ...formData, proposedDate: e.target.value })}
-            />
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Item / Aset *</label>
+              <select
+                value={selectedItem ? String(selectedItem.id) : ''}
+                onChange={e => handleSelectItem(e.target.value)}
+                className="w-full border p-2 rounded focus:ring-2 focus:ring-[#000080]/20"
+              >
+                <option value="">-- Pilih Item dari Inventory yang sudah ada --</option>
+                {inventoryItems.map((item: any) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} {item.sku ? `(${item.sku})` : ''} — {item.room_name || 'Tanpa ruangan'}{item.container_name ? ` / ${item.container_name}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">Pilih dari daftar barang inventory yang terdaftar. Ketik manual tidak diperbolehkan.</p>
+            </div>
+
+            {selectedItem && (
+              <div className="bg-slate-50 border rounded-lg p-3 text-sm">
+                <div className="font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  Informasi Item Terpilih
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-slate-600">
+                  <div><span className="text-slate-500">Nama:</span> {selectedItem.name}</div>
+                  <div><span className="text-slate-500">SKU:</span> {selectedItem.sku || '-'}</div>
+                  <div><span className="text-slate-500">Kondisi:</span> <span className="capitalize">{selectedItem.condition || '-'}</span></div>
+                  <div><span className="text-slate-500">Lokasi:</span> {selectedItem.room_name || '-'}{selectedItem.container_name ? ` / ${selectedItem.container_name}` : ''}</div>
+                  <div className="md:col-span-2"><span className="text-slate-500">Spesifikasi:</span> {selectedItem.specs || '-'}</div>
+                </div>
+                {selectedItem.parameters && (
+                  <div className="mt-1 text-xs text-slate-500">
+                    Parameter: {typeof selectedItem.parameters === 'string' ? selectedItem.parameters : JSON.stringify(selectedItem.parameters)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Alasan Disposal *</label>
+                <input
+                  className="w-full border p-2 rounded"
+                  placeholder="Contoh: Rusak berat, tidak dapat diperbaiki, end of life"
+                  value={formData.reason}
+                  onChange={e => setFormData({ ...formData, reason: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Jadwal Pelaksanaan *</label>
+                <input
+                  type="date"
+                  min={today}
+                  className="w-full border p-2 rounded"
+                  value={formData.proposedDate}
+                  onChange={e => setFormData({ ...formData, proposedDate: e.target.value })}
+                />
+              </div>
+            </div>
           </div>
           <button onClick={handleCreate} className="mt-4 px-6 py-2 bg-emerald-600 text-white rounded">Ajukan (akan ditahan sampai jadwal)</button>
           <p className="text-xs text-slate-500 mt-2">Setelah disetujui, sistem akan mengingatkan mendekati tanggal dan mengeksekusi soft delete + notif pada tanggal tersebut. Bisa dibatalkan sebelum eksekusi.</p>
